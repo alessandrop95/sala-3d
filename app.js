@@ -588,7 +588,42 @@
     lastVP = M4.mul(c.proj, c.view);
     placeWallLabels();
   }
-  function frame() { if (dirty) { dirty = false; draw(); } requestAnimationFrame(frame); }
+  /* spostamento morbido della vista (usato dall'elenco) */
+  let anim = null;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const angTo = (a, b) => { let d = (b - a) % (2 * PI); if (d > PI) d -= 2 * PI; if (d < -PI) d += 2 * PI; return a + d; };
+  function animStep(now) {
+    const t = clamp((now - anim.t0) / anim.ms, 0, 1), e = 1 - Math.pow(1 - t, 3), a = anim.a, b = anim.b;
+    if (b.target) { cam.target = [0, 1, 2].map(i => lerp(a.target[i], b.target[i], e)); cam.dist = lerp(a.dist, b.dist, e); cam.pitch = lerp(a.pitch, b.pitch, e); }
+    if (b.walk) { cam.walk = [0, 1, 2].map(i => lerp(a.walk[i], b.walk[i], e)); cam.wyaw = lerp(a.wyaw, b.wyaw, e); cam.wpitch = lerp(a.wpitch, b.wpitch, e); }
+    dirty = true;
+    if (t >= 1) anim = null;
+  }
+  function flyTo(b) {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const a = { target: cam.target.slice(), dist: cam.dist, pitch: cam.pitch, walk: cam.walk.slice(), wyaw: cam.wyaw, wpitch: cam.wpitch };
+    if (b.wyaw != null) b.wyaw = angTo(cam.wyaw, b.wyaw);
+    cam.auto = false;
+    anim = { a, b, t0: performance.now(), ms: reduce ? 1 : 550 };
+    dirty = true;
+  }
+  /* inquadra un attrezzo nella vista attuale */
+  function focusItem(it) {
+    const d = defOf(it), y = itemY(it), c = [it.x, y + d.h / 2, it.z], r = max(0.25, 0.5 * hypot(d.w, d.h, d.d));
+    if (S.view === 'walk') {
+      let dx = cam.walk[0] - it.x, dz = cam.walk[2] - it.z, l = hypot(dx, dz);
+      if (l < 0.05) { dx = 0; dz = 1; l = 1; }
+      const far = clamp(r * 2.6, 1.6, 6);
+      const p = [clamp(it.x + dx / l * far, 0.4, S.room.W - 0.4), 1.65, clamp(it.z + dz / l * far, 0.4, S.room.D - 0.4)];
+      const vx = it.x - p[0], vz = it.z - p[2];
+      flyTo({ walk: p, wyaw: atan2(vx, -vz), wpitch: clamp(atan2(c[1] - 1.65, max(0.3, hypot(vx, vz))), -1.2, 1.2) });
+    } else if (S.view === 'plan') {
+      flyTo({ target: [it.x, 0, it.z], dist: clamp(r / sin(FOV_O / 2) * 2.4, 4, 60), pitch: cam.pitch });
+    } else {
+      flyTo({ target: c, dist: clamp(r / sin(FOV_O / 2) * 1.7, 2.6, 40), pitch: clamp(cam.pitch, 0.35, 0.95) });
+    }
+  }
+  function frame(now) { if (anim) animStep(now || performance.now()); if (dirty) { dirty = false; draw(); } requestAnimationFrame(frame); }
   function resize() {
     const dpr = min(window.devicePixelRatio || 1, 2), w = max(1, round(stage.clientWidth * dpr)), h = max(1, round(stage.clientHeight * dpr));
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; if (cam.auto && S.view !== 'walk' && S.room) setView(S.view); }
@@ -678,6 +713,7 @@
   const ptr = new Map(); let act = null, lastTap = { t: 0, x: 0, y: 0 };
   canvas.addEventListener('contextmenu', e => e.preventDefault());
   canvas.addEventListener('pointerdown', e => {
+    anim = null;
     try { canvas.setPointerCapture(e.pointerId); } catch (_) { }
     ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
     closeMenu();
@@ -759,7 +795,7 @@
   }
   canvas.addEventListener('pointerup', pointerEnd);
   canvas.addEventListener('pointercancel', pointerEnd);
-  canvas.addEventListener('wheel', e => { e.preventDefault(); cam.auto = false; zoomBy(Math.exp(e.deltaY * 0.0012), -e.deltaY * 0.004); dirty = true; }, { passive: false });
+  canvas.addEventListener('wheel', e => { e.preventDefault(); anim = null; cam.auto = false; zoomBy(Math.exp(e.deltaY * 0.0012), -e.deltaY * 0.004); dirty = true; }, { passive: false });
   function zoomBy(f, walkStep) {
     if (S.view === 'walk') {
       cam.walk[0] = clamp(cam.walk[0] + sin(cam.wyaw) * walkStep, 0.4, S.room.W - 0.4);
@@ -837,7 +873,7 @@
     for (const it of S.items) { const d = defOf(it); g.set(d.k, (g.get(d.k) || 0) + 1); }
     const rows = [...g.entries()].map(([k, n]) => {
       const d = DEF.get(k), lab = n > 1 ? `Elimina un ${esc(d.name)} (ne restano ${n - 1})` : `Elimina ${esc(d.name)}`;
-      return `<li><span>${esc(d.name)}<small>${cm(d.w)}×${cm(d.d)}×${cm(d.h)} cm</small></span><b>× ${n}</b><button type="button" class="x" data-delk="${esc(k)}" aria-label="${lab}" title="${lab}">×</button></li>`;
+      return `<li><button type="button" class="go" data-go="${esc(k)}" title="Mostra nella vista"><span>${esc(d.name)}<small>${cm(d.w)}×${cm(d.d)}×${cm(d.h)} cm</small></span><b>× ${n}</b></button><button type="button" class="x" data-delk="${esc(k)}" aria-label="${lab}" title="${lab}">×</button></li>`;
     }).join('');
     $('#list-items').innerHTML = rows || '<li class="empty">Nessun attrezzo nella sala. Aprine uno dal catalogo.</li>';
     $('#list-floor').innerHTML = floorStats().map(s => `<li><span><i style="background:${s.f.col}"></i>${esc(s.f.name)}${s.f.th ? `<small>piastrelle 1×1 m, ${cm(s.f.th)} cm</small>` : ''}</span><b>${s.f.th ? s.n + ' pz · ' : ''}${fm(s.a, 1)} m²</b></li>`).join('');
@@ -922,7 +958,21 @@
     else if (a === 'e-' && it) setElev(snap(it.elev - 0.05)); else if (a === 'e+' && it) setElev(snap(it.elev + 0.05));
   });
   /* elenco: la X toglie un attrezzo di quel tipo (quello selezionato se è di quel tipo, altrimenti l'ultimo aggiunto) */
+  let goIdx = { k: '', i: -1 };
   $('#list-items').addEventListener('click', e => {
+    const g = e.target.closest('[data-go]');
+    if (g) {
+      const k = g.dataset.go, all = S.items.filter(i => i.k === k);
+      if (!all.length) return;
+      const sel = selItem();
+      // primo tocco: quello selezionato (se è di questo tipo) o il primo; tocchi successivi: il seguente
+      const i = goIdx.k === k ? (goIdx.i + 1) % all.length : sel && sel.k === k ? all.indexOf(sel) : 0;
+      goIdx = { k, i };
+      const it = all[i];
+      select(it.id); focusItem(it);
+      if (all.length > 1) toast(`${DEF.get(k).name}: ${i + 1} di ${all.length}. Tocca di nuovo per il successivo.`, 2600);
+      return;
+    }
     const b = e.target.closest('[data-delk]'); if (!b) return;
     const k = b.dataset.delk, sel = selItem();
     const it = sel && sel.k === k ? sel : [...S.items].reverse().find(i => i.k === k);

@@ -81,6 +81,9 @@ button { cursor: pointer; }
 .stat li i { width: 16px; height: 16px; border-radius: 4px; }
 .stat li b { margin-left: auto; font: 500 12.5px var(--f-num); white-space: nowrap; }
 .stat li.empty { color: var(--muted); border: 0; }
+.stat li .go { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; text-align: left; background: none; border: 0; padding: 4px 6px; margin: -4px -6px; border-radius: 8px; font-size: 13px; }
+.stat li .go:hover { background: var(--chip); }
+.stat li .go b { margin-left: auto; font: 500 12.5px var(--f-num); white-space: nowrap; }
 .stat li .x { flex: none; width: 30px; height: 30px; margin-left: 2px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; color: var(--danger); font-size: 18px; line-height: 1; display: grid; place-items: center; }
 .stat li .x:hover { border-color: var(--danger); }
 
