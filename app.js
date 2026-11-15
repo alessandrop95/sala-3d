@@ -835,7 +835,10 @@
   function renderList() {
     const g = new Map();
     for (const it of S.items) { const d = defOf(it); g.set(d.k, (g.get(d.k) || 0) + 1); }
-    const rows = [...g.entries()].map(([k, n]) => { const d = DEF.get(k); return `<li><span>${esc(d.name)}<small>${cm(d.w)}×${cm(d.d)}×${cm(d.h)} cm</small></span><b>× ${n}</b></li>`; }).join('');
+    const rows = [...g.entries()].map(([k, n]) => {
+      const d = DEF.get(k), lab = n > 1 ? `Elimina un ${esc(d.name)} (ne restano ${n - 1})` : `Elimina ${esc(d.name)}`;
+      return `<li><span>${esc(d.name)}<small>${cm(d.w)}×${cm(d.d)}×${cm(d.h)} cm</small></span><b>× ${n}</b><button type="button" class="x" data-delk="${esc(k)}" aria-label="${lab}" title="${lab}">×</button></li>`;
+    }).join('');
     $('#list-items').innerHTML = rows || '<li class="empty">Nessun attrezzo nella sala. Aprine uno dal catalogo.</li>';
     $('#list-floor').innerHTML = floorStats().map(s => `<li><span><i style="background:${s.f.col}"></i>${esc(s.f.name)}${s.f.th ? `<small>piastrelle 1×1 m, ${cm(s.f.th)} cm</small>` : ''}</span><b>${s.f.th ? s.n + ' pz · ' : ''}${fm(s.a, 1)} m²</b></li>`).join('');
     $('#list-tot').textContent = `${S.items.length} attrezzi · sala ${fm(S.room.W, 1)} × ${fm(S.room.D, 1)} m (${fm(S.room.W * S.room.D, 1)} m²)`;
@@ -917,6 +920,20 @@
     if (a === 'rl') rotateSel(PI / 12); else if (a === 'rr') rotateSel(-PI / 12); else if (a === 'r90') rotateSel(PI / 2);
     else if (a === 'dup') duplicateSel(); else if (a === 'del') deleteSel();
     else if (a === 'e-' && it) setElev(snap(it.elev - 0.05)); else if (a === 'e+' && it) setElev(snap(it.elev + 0.05));
+  });
+  /* elenco: la X toglie un attrezzo di quel tipo (quello selezionato se è di quel tipo, altrimenti l'ultimo aggiunto) */
+  $('#list-items').addEventListener('click', e => {
+    const b = e.target.closest('[data-delk]'); if (!b) return;
+    const k = b.dataset.delk, sel = selItem();
+    const it = sel && sel.k === k ? sel : [...S.items].reverse().find(i => i.k === k);
+    if (!it) return;
+    pushHist();
+    S.items = S.items.filter(i => i !== it);
+    if (S.sel === it.id) S.sel = null;
+    changed();
+    toast(`Eliminato: ${DEF.get(k).name}. Con ↶ lo ripristini.`);
+    const next = $('#list-items [data-delk="' + k + '"]') || $('#list-items [data-delk]');
+    if (next) next.focus();
   });
   $('#btn-undo').addEventListener('click', undo); $('#btn-redo').addEventListener('click', redo);
   $('#btn-menu').addEventListener('click', e => { e.stopPropagation(); const m = $('#menu'); m.hidden = !m.hidden; $('#btn-menu').setAttribute('aria-expanded', String(!m.hidden)); });
