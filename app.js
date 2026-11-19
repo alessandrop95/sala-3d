@@ -919,7 +919,7 @@
     $('#f-decal').addEventListener('change', e => { if (e.target.id !== 'dc-file') later(); });
     if (type === 'img') $('#dc-file').addEventListener('change', async e => {
       const f = e.target.files && e.target.files[0]; if (!f) return;
-      const budget = min(110000, ROOM_LIMIT - usedBy(it) - 3000);
+      const budget = min(62000, ROOM_LIMIT - usedBy(it) - 3000);   // così nella sala ci stanno almeno due dipinti
       if (budget < 12000) { $('#dc-fname').textContent = 'Spazio esaurito: elimina un\'altra immagine dalla sala.'; return; }
       busy = true; $('#dc-ok').disabled = true; $('#dc-fname').textContent = 'Preparo l\'immagine…';
       try {
