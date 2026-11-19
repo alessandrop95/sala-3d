@@ -7,7 +7,7 @@ Tutto il testo è in italiano e non serve alcun account.
 ## Cosa si può fare
 
 - **Attrezzi**: oltre 60 modelli (strutture, pesi, cardio, arti marziali, stile giapponese, arredo e servizi) più quelli con misure tue, modificabili in ogni momento.
-- **Decorazioni**: immagini o dipinti (anche montati come rotolo giapponese *kakejiku* o in cornice) e scritte (anche verticali, con carattere a pennello), su parete o sul pavimento.
+- **Decorazioni**: immagini o dipinti (montati come pannello giapponese orizzontale *gaku*, rotolo verticale *kakejiku* o in cornice) e scritte (anche verticali, con carattere a pennello), su parete o sul pavimento.
 - **Pareti**: colore di ogni parete, con tavolozza di colori tradizionali giapponesi.
 - **Pavimento** a piastrelle da 1×1 m, **metro** per misurare, **posizione esatta** degli oggetti in metri dalle pareti.
 

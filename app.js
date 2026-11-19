@@ -697,9 +697,15 @@
       const e = walk ? [-sin(cam.wyaw), 0, cos(cam.wyaw)] : [sin(cam.yaw), 0, cos(cam.yaw)];
       let bk = 'C', bv = -9;
       for (const key of WALL_KEYS) { const v = V3.dot(wallInfo(key).n, e); if (v > bv) { bv = v; bk = key; } }
-      const wi = wallInfo(bk);
+      const wi = wallInfo(bk), hw = d.w / 2;
+      // primo punto libero partendo dal centro della parete, alternando destra e sinistra (10 cm di distanza dagli altri)
+      const busy = u => S.items.some(o => o !== it && o.wall === bk && abs(o.u - u) < hw + defOf(o).w / 2 + 0.1);
       let u = wi.len / 2;
-      while (S.items.some(o => o !== it && o.wall === bk && abs(o.u - u) < 0.3) && u < wi.len - 0.6) u += 0.5;
+      for (let k = 0; k <= 200; k++) {
+        const c = wi.len / 2 + (k % 2 ? 1 : -1) * ceil(k / 2) * 0.1;
+        if (c < hw || c > wi.len - hw) continue;
+        if (!busy(c)) { u = c; break; }
+      }
       placeOnWall(it, bk, u, it.k === DECAL ? max(0.1, 1.75 - d.h / 2) : (d.elev || 0));
       return;
     }
@@ -745,7 +751,7 @@
     sans: { n: 'Moderno', f: '700 {px}px "Archivo", system-ui, sans-serif' },
     cond: { n: 'Sportivo', f: '400 {px}px "Bebas Neue", "Archivo", sans-serif' },
   };
-  const FRAMES = { none: 'Nessuna', scroll: 'Rotolo giapponese (kakejiku)', frame: 'Cornice nera con passe-partout', wood: 'Cornice in legno' };
+  const FRAMES = { none: 'Nessuna', gaku: 'Pannello giapponese orizzontale (gaku)', scroll: 'Rotolo giapponese verticale (kakejiku)', frame: 'Cornice nera con passe-partout', wood: 'Cornice in legno' };
   const HEX = /^#[0-9a-f]{6}$/i;
   function decalDef(it) {
     const wall = it.mount !== 'floor', hh = it.w * it.asp;
@@ -813,6 +819,15 @@
       x.fillStyle = frame === 'frame' ? '#141414' : '#8a6238'; x.fillRect(0, 0, c.width, c.height);
       x.strokeStyle = frame === 'frame' ? '#3a3a3a' : '#b98d55'; x.lineWidth = max(1, fb * 0.18); x.strokeRect(fb * 0.3, fb * 0.3, c.width - fb * 0.6, c.height - fb * 0.6);
       if (mat) { x.fillStyle = '#f6f2e8'; x.fillRect(fb, fb, W + 2 * mat, H + 2 * mat); }
+      x.drawImage(b, o, o);
+    } else if (frame === 'gaku') {
+      // pannello orizzontale: cornice in legno scuro, bordo in seta chiara, filetto dorato attorno al dipinto
+      const fb = round(M * 0.028), silk = round(M * 0.065), gold = max(2, round(M * 0.006)), o = fb + silk;
+      c = mkCanvas(W + 2 * o, H + 2 * o); x = c.getContext('2d');
+      x.fillStyle = '#24170f'; x.fillRect(0, 0, c.width, c.height);
+      x.strokeStyle = '#5a3f28'; x.lineWidth = max(1, fb * 0.2); x.strokeRect(fb * 0.35, fb * 0.35, c.width - fb * 0.7, c.height - fb * 0.7);
+      x.fillStyle = '#ddd0b2'; x.fillRect(fb, fb, W + 2 * silk, H + 2 * silk);
+      x.fillStyle = '#c9a650'; x.fillRect(o - gold, o - gold, W + 2 * gold, H + 2 * gold);
       x.drawImage(b, o, o);
     } else if (frame === 'scroll') {
       const side = round(W * 0.11), top = round(W * 0.42), bot = round(W * 0.26), band = max(2, round(W * 0.03));
@@ -895,7 +910,9 @@
       <div class="dc-prev"><canvas id="dc-cv" width="10" height="10" aria-label="Anteprima"></canvas><span id="dc-info" class="mono"></span></div>
       ${type === 'img' ? `<p class="dc-note">Le immagini vengono compresse per stare nella sala condivisa (spazio libero circa ${round(free / 1000)} kB). Formati: JPG, PNG, WEBP, SVG.</p>` : ''}
       <div class="row"><button type="button" data-close>Annulla</button><button type="submit" class="primary" id="dc-ok">${ed ? 'Salva' : 'Aggiungi alla sala'}</button></div></form>`);
-    let src = cur.src || '', asp = cur.asp || 1, token = 0, busy = false;
+    let src = cur.src || '', asp = cur.asp || 1, token = 0, busy = false, frameSet = ed, sizeSet = ed;
+    $('#dc-frame').addEventListener('change', () => { frameSet = true; });
+    $('#dc-size').addEventListener('input', () => { sizeSet = true; });
     const val = () => {
       const d = { type, mount: $('#dc-mount').value, frame: $('#dc-frame').value };
       if (type === 'img') Object.assign(d, { src, name: $('#dc-name').value.trim() });
@@ -926,6 +943,9 @@
         const r = await compressImage(f, budget);
         if (!r) { $('#dc-fname').textContent = 'Immagine troppo pesante anche ridotta. Provane un\'altra.'; return; }
         src = r.src; $('#dc-fname').textContent = `${f.name.slice(0, 40)} · ${r.w}×${r.h} px`;
+        const wide = r.w > r.h * 1.1;   // orizzontale: pannello gaku largo 3 m; verticale: rotolo alto 1,8 m
+        if (!frameSet) $('#dc-frame').value = wide ? 'gaku' : 'scroll';
+        if (!sizeSet) $('#dc-size').value = wide ? 300 : 180;
         if (!$('#dc-name').value.trim()) $('#dc-name').value = f.name.replace(/\.[^.]+$/, '').slice(0, 40);
         preview();
       } catch (err) { $('#dc-fname').textContent = 'Non riesco a leggere questa immagine. Prova un JPG o PNG.'; }
