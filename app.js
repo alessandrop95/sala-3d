@@ -51,7 +51,7 @@
     return FLOOR_BY.get(S.cells[j * S.nx + i]) || FLOORS[0];
   }
   const floorTh = (x, z) => cellAt(x, z).th;
-  const defOf = it => DEF.get(it.k);
+  const defOf = it => it.k === 'decal' ? decalDef(it) : DEF.get(it.k);
   function itemY(it) {
     const d = defOf(it);
     if (d.hang) return it.elev;
@@ -114,6 +114,8 @@
       o.openings.push({ t: p.t === 'door' ? 'door' : 'win', wall: wi.key, u, w, sill, h });
     }
     S.room = prev;
+    o.cols = {};
+    if (r.cols && typeof r.cols === 'object') for (const k of WALL_KEYS) if (/^#[0-9a-f]{6}$/i.test(r.cols[k])) o.cols[k] = r.cols[k].toLowerCase();
     return o;
   }
   function resizeFloor(oldNx, oldNz, oldCells) {
@@ -136,10 +138,12 @@
     resizeFloor(+p.nx || 0, +p.nz || 0, Array.isArray(p.cells) ? p.cells : null);
     S.items = []; const ids = new Set();
     for (const q of p.items || []) {
-      if (!DEF.has(q.k)) continue;
+      const isDec = q.k === DECAL;
+      if (!isDec && !DEF.has(q.k)) continue;
       let id = +q.id || 0; if (!id || ids.has(id)) id = newId(); ids.add(id);
       const it = { id, k: q.k, x: +q.x || 0, z: +q.z || 0, rot: +q.rot || 0, elev: +q.elev || 0 };
-      if (DEF.get(q.k).wall) { it.wall = WALL_KEYS.includes(q.wall) ? q.wall : 'C'; it.u = +q.u || 0; }
+      if (isDec) { const dc = cleanDecal(q); if (!dc) continue; Object.assign(it, dc); }
+      if (defOf(it).wall) { it.wall = WALL_KEYS.includes(q.wall) ? q.wall : 'C'; it.u = +q.u || 0; }
       clampItem(it); S.items.push(it);
     }
     if (!S.items.some(i => i.id === S.sel)) S.sel = null;
@@ -215,7 +219,7 @@
   }
   function merge3(b, l, r) {
     const pick = f => canon(l.room[f]) !== canon(b.room[f]) ? l.room[f] : r.room[f];
-    const room = { W: pick('W'), D: pick('D'), hLow: pick('hLow'), hHigh: pick('hHigh'), openings: pick('openings') };
+    const room = { W: pick('W'), D: pick('D'), hLow: pick('hLow'), hHigh: pick('hHigh'), openings: pick('openings'), cols: pick('cols') };
     let nx, nz, cells;
     if (l.nx === r.nx && l.nz === r.nz && b.nx === l.nx && b.nz === l.nz && l.cells.length === r.cells.length) {
       nx = l.nx; nz = l.nz; cells = l.cells.map((v, i) => v !== b.cells[i] ? v : r.cells[i]);
@@ -344,11 +348,13 @@
 
   /* ---------------- geometria della sala ---------------- */
   const WALL_COL = '#f8f7f4', T = 0.25;
+  const WALL_PRESETS = [['Bianco', '#f8f7f4'], ['Carta washi', '#ece2cc'], ['Grigio perla', '#d8d8d2'], ['Sabbia', '#d9c7a5'], ['Verde matcha', '#a9b386'], ['Rosso lacca', '#a8392b'], ['Indaco', '#2e3d5c'], ['Sumi (antracite)', '#3a3937']];
   function shade(hex, f) {
     const n = parseInt(hex.slice(1), 16), c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => clamp(round(v * f), 0, 255));
     return '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
   }
   function buildWall(key) {
+    const wc = (S.room.cols && S.room.cols[key]) || WALL_COL;
     const wi = wallInfo(key), mb = new MB(), ext = key === 'A' || key === 'C' ? T : 0;
     mb.frame(wi.o, wi.dir, [0, 1, 0], wi.n);
     const ops = S.room.openings.filter(o => o.wall === key);
@@ -361,8 +367,8 @@
       if (b - a < 1e-4) continue;
       const cov = ops.filter(o => o.u <= a + 1e-4 && o.u + o.w >= b - 1e-4).sort((p, q) => p.sill - q.sill);
       let y = 0;
-      for (const o of cov) { if (o.sill > y + 1e-4) mb.prism(a, b, y, o.sill, o.sill, T, WALL_COL); y = max(y, o.sill + o.h); }
-      if (hAt(a) > y + 1e-4 || hAt(b) > y + 1e-4) mb.prism(a, b, y, max(hAt(a), y), max(hAt(b), y), T, WALL_COL);
+      for (const o of cov) { if (o.sill > y + 1e-4) mb.prism(a, b, y, o.sill, o.sill, T, wc); y = max(y, o.sill + o.h); }
+      if (hAt(a) > y + 1e-4 || hAt(b) > y + 1e-4) mb.prism(a, b, y, max(hAt(a), y), max(hAt(b), y), T, wc);
     }
     const z = -T / 2;
     for (const o of ops) {
@@ -473,12 +479,12 @@
     return [ray.o[0] + ray.d[0] * t, y, ray.o[2] + ray.d[2] * t];
   }
   function pickItem(px, py) {
-    const ray = rayAt(px, py); let best = null;
+    const ray = rayAt(px, py); let best = null, flat = null;
     for (const it of S.items) {
       const d = defOf(it), c = cos(it.rot), s = sin(it.rot), y0 = itemY(it);
       const ox = ray.o[0] - it.x, oy = ray.o[1] - y0, oz = ray.o[2] - it.z;
       const lo = [c * ox - s * oz, oy, s * ox + c * oz], ld = [c * ray.d[0] - s * ray.d[2], ray.d[1], s * ray.d[0] + c * ray.d[2]];
-      const hw = max(d.w, 0.34) / 2, hd = max(d.d, 0.34) / 2, hh = max(d.h, 0.2);
+      const hw = max(d.w, 0.34) / 2, hd = max(d.d, 0.34) / 2, hh = d.flat ? 0.03 : max(d.h, 0.2);
       const mn = [-hw, 0, -hd], mx = [hw, hh, hd];
       let t0 = 0, t1 = 1e9, ok = true;
       for (let k = 0; k < 3; k++) {
@@ -488,9 +494,12 @@
         t0 = max(t0, a); t1 = min(t1, b);
         if (t0 > t1) { ok = false; break; }
       }
-      if (ok && (!best || t0 < best.t)) best = { it, t: t0, point: V3.add(ray.o, V3.mul(ray.d, t0)) };
+      if (!ok) continue;
+      const hit = { it, t: t0, point: V3.add(ray.o, V3.mul(ray.d, t0)) };
+      if (d.flat) { if (!flat || t0 < flat.t) flat = hit; }
+      else if (!best || t0 < best.t) best = hit;
     }
-    return best;
+    return best || flat;
   }
   /* punto sulla parete sotto il puntatore; `prefer` = parete attuale dell'attrezzo, valida anche se vista da dietro */
   function wallHit(ray, prefer) {
@@ -514,10 +523,10 @@
     if (!ovDirty) return ovSet;
     ovDirty = false; ovSet = new Set();
     const a = S.items.find(i => i.id === S.sel);
-    if (!a) return ovSet;
+    if (!a || a.k === DECAL) return ovSet;
     const A = obb(a);
     for (const b of S.items) {
-      if (b === a) continue;
+      if (b === a || b.k === DECAL) continue;
       const B = obb(b);
       if (A.y1 <= B.y0 + 0.005 || B.y1 <= A.y0 + 0.005) continue;
       if (sat(A, B) && sat(B, A)) ovSet.add(b.id);
@@ -549,6 +558,7 @@
     if (m) clearCol = [m[1] / 255, m[2] / 255, m[3] / 255, 1];
     dirty = true;
   }
+  const decals = [];
   function buildDraws(eye) {
     const r = S.room, dr = [];
     if (floorDirty) buildFloor();
@@ -560,9 +570,21 @@
     if (walk || eye[0] > 0) dr.push({ mesh: R.D, m: IDENT });
     if (S.showRoof && S.view !== 'plan' && (walk || eye[1] < roofH(eye[2]))) dr.push({ mesh: R.roof, m: IDENT });
     const ov = overlapsOfSel();
+    decals.length = 0; const live = new Set();
     for (const it of S.items) {
       const d = defOf(it), y = itemY(it);
-      dr.push({
+      if (it.k === DECAL) {
+        live.add(it.id);
+        const tex = getDecalTex(it);
+        if (tex) decals.push({ tex, m: decalMatrix(it, d), alpha: 1 });
+        if (it.id === S.sel && d.wall) {
+          const c = cos(it.rot), s = sin(it.rot), t = 0.025, n = 0.012, yc = it.elev + d.h / 2;
+          const bar = (ox, oy, sx, sy) => dr.push({ mesh: R.outline, m: M4.compose(it.x + c * ox + s * n, yc + oy, it.z - s * ox + c * n, it.rot, sx, sy, 0.006) });
+          bar(0, d.h / 2 + t, d.w + 4 * t, t); bar(0, -d.h / 2 - t, d.w + 4 * t, t); bar(d.w / 2 + t, 0, t, d.h + 2 * t); bar(-d.w / 2 - t, 0, t, d.h + 2 * t);
+          continue;
+        }
+        if (it.id !== S.sel) continue;
+      } else dr.push({
         mesh: getMesh(it.k), m: M4.compose(it.x, y, it.z, it.rot), cast: true,
         tint: it.id === S.sel ? [accLin[0], accLin[1], accLin[2], 0.14] : ov.has(it.id) ? [0.85, 0.08, 0.05, 0.4] : null,
       });
@@ -580,13 +602,16 @@
           dr.push({ mesh: R.outline, m: M4.compose(it.x + c * lx + s * lz, yb, it.z - s * lx + c * lz, it.rot, sx, 0.008, sz) });
       }
     }
+    for (const [id, e] of decalTex) if (!live.has(id)) { eng.freeTex(e.tex); decalTex.delete(id); }
+    measDraws(dr);
     return dr;
   }
   function draw() {
     const c = camMats();
-    eng.render({ draws: buildDraws(c.eye), view: c.view, proj: c.proj, eye: c.eye, clear: clearCol, shadows: true });
+    const draws = buildDraws(c.eye);
+    eng.render({ draws, view: c.view, proj: c.proj, eye: c.eye, clear: clearCol, shadows: true, decals });
     lastVP = M4.mul(c.proj, c.view);
-    placeWallLabels();
+    placeWallLabels(); placeMeasLabel();
   }
   /* spostamento morbido della vista (usato dall'elenco) */
   let anim = null;
@@ -594,15 +619,16 @@
   const angTo = (a, b) => { let d = (b - a) % (2 * PI); if (d > PI) d -= 2 * PI; if (d < -PI) d += 2 * PI; return a + d; };
   function animStep(now) {
     const t = clamp((now - anim.t0) / anim.ms, 0, 1), e = 1 - Math.pow(1 - t, 3), a = anim.a, b = anim.b;
-    if (b.target) { cam.target = [0, 1, 2].map(i => lerp(a.target[i], b.target[i], e)); cam.dist = lerp(a.dist, b.dist, e); cam.pitch = lerp(a.pitch, b.pitch, e); }
+    if (b.target) { cam.target = [0, 1, 2].map(i => lerp(a.target[i], b.target[i], e)); cam.dist = lerp(a.dist, b.dist, e); cam.pitch = lerp(a.pitch, b.pitch, e); if (b.yaw != null) cam.yaw = lerp(a.yaw, b.yaw, e); }
     if (b.walk) { cam.walk = [0, 1, 2].map(i => lerp(a.walk[i], b.walk[i], e)); cam.wyaw = lerp(a.wyaw, b.wyaw, e); cam.wpitch = lerp(a.wpitch, b.wpitch, e); }
     dirty = true;
     if (t >= 1) anim = null;
   }
   function flyTo(b) {
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const a = { target: cam.target.slice(), dist: cam.dist, pitch: cam.pitch, walk: cam.walk.slice(), wyaw: cam.wyaw, wpitch: cam.wpitch };
+    const a = { target: cam.target.slice(), dist: cam.dist, pitch: cam.pitch, yaw: cam.yaw, walk: cam.walk.slice(), wyaw: cam.wyaw, wpitch: cam.wpitch };
     if (b.wyaw != null) b.wyaw = angTo(cam.wyaw, b.wyaw);
+    if (b.yaw != null) b.yaw = angTo(cam.yaw, b.yaw);
     cam.auto = false;
     anim = { a, b, t0: performance.now(), ms: reduce ? 1 : 550 };
     dirty = true;
@@ -619,6 +645,10 @@
       flyTo({ walk: p, wyaw: atan2(vx, -vz), wpitch: clamp(atan2(c[1] - 1.65, max(0.3, hypot(vx, vz))), -1.2, 1.2) });
     } else if (S.view === 'plan') {
       flyTo({ target: [it.x, 0, it.z], dist: clamp(r / sin(FOV_O / 2) * 2.4, 4, 60), pitch: cam.pitch });
+    } else if (d.wall) {
+      // di fronte alla parete, guardando dall'interno della sala
+      const n = wallInfo(it.wall).n;
+      flyTo({ target: c, dist: clamp(r / sin(FOV_O / 2) * 1.5, 2.6, 30), pitch: 0.22, yaw: atan2(n[0], n[2]) });
     } else {
       flyTo({ target: c, dist: clamp(r / sin(FOV_O / 2) * 1.7, 2.6, 40), pitch: clamp(cam.pitch, 0.35, 0.95) });
     }
@@ -660,30 +690,36 @@
   /* ---------------- azioni sugli attrezzi ---------------- */
   const selItem = () => S.items.find(i => i.id === S.sel) || null;
   function select(id) { if (S.sel === id) return; S.sel = id; ovDirty = true; dirty = true; updateSelbar(); }
-  function addItem(k) {
-    const d = DEF.get(k); if (!d) return;
-    pushHist();
-    const it = { id: newId(), k, x: 0, z: 0, rot: 0, elev: d.elev || 0 };
-    const walk = S.view === 'walk';
+  /* posizione iniziale: a parete sulla parete di fronte alla vista, a terra al centro della vista in un punto libero */
+  function placeNew(it) {
+    const d = defOf(it), walk = S.view === 'walk';
     if (d.wall) {
       const e = walk ? [-sin(cam.wyaw), 0, cos(cam.wyaw)] : [sin(cam.yaw), 0, cos(cam.yaw)];
       let bk = 'C', bv = -9;
       for (const key of WALL_KEYS) { const v = V3.dot(wallInfo(key).n, e); if (v > bv) { bv = v; bk = key; } }
       const wi = wallInfo(bk);
       let u = wi.len / 2;
-      while (S.items.some(o => o.wall === bk && abs(o.u - u) < 0.3) && u < wi.len - 0.6) u += 0.5;
-      placeOnWall(it, bk, u, d.elev || 0);
-    } else {
-      if (walk) { it.x = cam.walk[0] + sin(cam.wyaw) * 3; it.z = cam.walk[2] - cos(cam.wyaw) * 3; it.rot = -cam.wyaw; }
-      else { it.x = cam.target[0]; it.z = cam.target[2]; it.rot = round(cam.yaw / (PI / 2)) * PI / 2; }
-      it.x = snap(it.x); it.z = snap(it.z); clampItem(it);
-      const bx = it.x, bz = it.z, free = () => { const A = obb(it, 0.2); return !S.items.some(o => { const B = obb(o); return !(A.y1 <= B.y0 + 0.005 || B.y1 <= A.y0 + 0.005) && sat(A, B) && sat(B, A); }); };
-      search: for (let rad = 0; rad <= 5; rad += 0.5) for (let k = 0; k < (rad ? 12 : 1); k++) {
-        it.x = snap(bx + rad * cos(k * PI / 6)); it.z = snap(bz + rad * sin(k * PI / 6)); clampItem(it);
-        if (free()) break search;
-        if (rad === 5 && k === 11) { it.x = bx; it.z = bz; clampItem(it); }
-      }
+      while (S.items.some(o => o !== it && o.wall === bk && abs(o.u - u) < 0.3) && u < wi.len - 0.6) u += 0.5;
+      placeOnWall(it, bk, u, it.k === DECAL ? max(0.1, 1.75 - d.h / 2) : (d.elev || 0));
+      return;
     }
+    if (walk) { it.x = cam.walk[0] + sin(cam.wyaw) * 3; it.z = cam.walk[2] - cos(cam.wyaw) * 3; it.rot = -cam.wyaw; }
+    else { it.x = cam.target[0]; it.z = cam.target[2]; it.rot = round(cam.yaw / (PI / 2)) * PI / 2; }
+    it.x = snap(it.x); it.z = snap(it.z); clampItem(it);
+    if (it.k === DECAL) return;
+    const bx = it.x, bz = it.z, free = () => { const A = obb(it, 0.2); return !S.items.some(o => { if (o === it || o.k === DECAL) return false; const B = obb(o); return !(A.y1 <= B.y0 + 0.005 || B.y1 <= A.y0 + 0.005) && sat(A, B) && sat(B, A); }); };
+    search: for (let rad = 0; rad <= 5; rad += 0.5) for (let k = 0; k < (rad ? 12 : 1); k++) {
+      it.x = snap(bx + rad * cos(k * PI / 6)); it.z = snap(bz + rad * sin(k * PI / 6)); clampItem(it);
+      if (free()) break search;
+      if (rad === 5 && k === 11) { it.x = bx; it.z = bz; clampItem(it); }
+    }
+  }
+  function addItem(k, extra) {
+    if (k !== DECAL && !DEF.get(k)) return;
+    pushHist();
+    const it = Object.assign({ id: newId(), k, x: 0, z: 0, rot: 0, elev: 0 }, extra || {});
+    if (k !== DECAL) it.elev = DEF.get(k).elev || 0;
+    placeNew(it);
     S.items.push(it); select(it.id); changed();
     if (isNarrow()) setPanelOpen(false);
   }
@@ -697,6 +733,305 @@
     S.items.push(n); select(n.id); changed();
   }
   function setElev(v) { const it = selItem(); if (!it) return; pushHist(); it.elev = max(0, v); clampItem(it); changed(); }
+
+  /* ---------------- decorazioni: immagini e scritte su pareti e pavimento ----------------
+     Ogni decorazione è un elemento della sala (k = 'decal') con i propri dati: l'immagine compressa è salvata nella sala,
+     la scritta si ridisegna da testo, font e colori. La forma finale (con cornice o montatura a rotolo) dà il rapporto altezza/larghezza. */
+  const DECAL = 'decal';
+  const ROOM_LIMIT = 138000;
+  const FONTS = {
+    brush: { n: 'Pennello giapponese', f: '400 {px}px "Yuji Syuku", "Noto Serif JP", serif' },
+    serif: { n: 'Serif giapponese', f: '700 {px}px "Noto Serif JP", serif' },
+    sans: { n: 'Moderno', f: '700 {px}px "Archivo", system-ui, sans-serif' },
+    cond: { n: 'Sportivo', f: '400 {px}px "Bebas Neue", "Archivo", sans-serif' },
+  };
+  const FRAMES = { none: 'Nessuna', scroll: 'Rotolo giapponese (kakejiku)', frame: 'Cornice nera con passe-partout', wood: 'Cornice in legno' };
+  const HEX = /^#[0-9a-f]{6}$/i;
+  function decalDef(it) {
+    const wall = it.mount !== 'floor', hh = it.w * it.asp;
+    const name = it.name || (it.type === 'txt' ? 'Scritta «' + (it.text.length > 18 ? it.text.slice(0, 17).trim() + '…' : it.text).replace(/\n/g, ' ') + '»' : 'Immagine');
+    return { k: DECAL, name, cat: 'decor', w: it.w, d: wall ? 0.012 : hh, h: wall ? hh : 0.004, wall, flat: !wall, decal: true };
+  }
+  function cleanDecal(q) {
+    const o = {
+      type: q.type === 'txt' ? 'txt' : 'img', mount: q.mount === 'floor' ? 'floor' : 'wall',
+      w: clamp(+q.w || 1, 0.05, 12), asp: clamp(+q.asp || 1, 0.02, 50), frame: FRAMES[q.frame] ? q.frame : 'none',
+      name: typeof q.name === 'string' ? q.name.slice(0, 40) : '',
+    };
+    if (o.type === 'img') {
+      if (typeof q.src !== 'string' || !/^data:image\/(webp|png|jpeg);base64,/.test(q.src) || q.src.length > 130000) return null;
+      o.src = q.src;
+    } else {
+      const t = typeof q.text === 'string' ? q.text.slice(0, 300) : '';
+      if (!t.trim()) return null;
+      Object.assign(o, { text: t, font: FONTS[q.font] ? q.font : 'brush', color: HEX.test(q.color) ? q.color : '#1d1d1d', bg: HEX.test(q.bg) ? q.bg : '', vert: !!q.vert });
+    }
+    return o;
+  }
+  const decalKey = it => it.type === 'txt' ? [it.text, it.font, it.color, it.bg, it.vert ? 1 : 0, it.frame].join('\u0001') : it.frame + '\u0001' + it.src;
+  const mkCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = max(1, round(w)); c.height = max(1, round(h)); return c; };
+  const loadImg = src => new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error('Immagine non leggibile')); i.src = src; });
+  async function textCanvas(it) {
+    const F = FONTS[it.font] || FONTS.brush, lines = it.text.split('\n').slice(0, 10).map(l => l.trimEnd());
+    const fontAt = px => F.f.replace('{px}', round(px));
+    try { await Promise.race([document.fonts.load(fontAt(120), it.text), new Promise(r => setTimeout(r, 3500))]); } catch (e) { /* si usa il font di riserva */ }
+    const m = mkCanvas(4, 4).getContext('2d');
+    const layout = px => {
+      m.font = fontAt(px);
+      if (it.vert) {
+        const cols = lines.map(l => [...l]), rows = max(1, ...cols.map(c => c.length));
+        return { W: max(1, cols.length) * px * 1.25, H: rows * px * 1.08, cols };
+      }
+      return { W: max(px * 0.6, ...lines.map(l => m.measureText(l).width)), H: max(1, lines.length) * px * 1.28 };
+    };
+    let px = 140, L = layout(px), pad = it.bg ? px * 0.5 : px * 0.14;
+    const sc = min(1, 1800 / (max(L.W, L.H) + 2 * pad));
+    if (sc < 1) { px *= sc; L = layout(px); pad *= sc; }
+    const c = mkCanvas(L.W + 2 * pad, L.H + 2 * pad), x = c.getContext('2d');
+    if (it.bg) { x.fillStyle = it.bg; x.fillRect(0, 0, c.width, c.height); }
+    x.fillStyle = it.color; x.font = fontAt(px); x.textAlign = 'center'; x.textBaseline = 'middle';
+    if (it.vert) {
+      // colonne da destra a sinistra, come nella scrittura giapponese
+      L.cols.forEach((col, ci) => {
+        const cx = c.width - pad - (ci + 0.5) * px * 1.25;
+        col.forEach((ch, ri) => x.fillText(ch, cx, pad + (ri + 0.5) * px * 1.08));
+      });
+    } else lines.forEach((l, i) => x.fillText(l, c.width / 2, pad + (i + 0.5) * px * 1.28));
+    return c;
+  }
+  async function imgCanvas(src) {
+    const im = await loadImg(src), c = mkCanvas(im.naturalWidth || 512, im.naturalHeight || 512);
+    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+    return c;
+  }
+  function frameCanvas(b, frame) {
+    const W = b.width, H = b.height, M = max(W, H);
+    let c, x;
+    if (frame === 'frame' || frame === 'wood') {
+      const fb = round(M * 0.035), mat = frame === 'frame' ? round(M * 0.07) : 0, o = fb + mat;
+      c = mkCanvas(W + 2 * o, H + 2 * o); x = c.getContext('2d');
+      x.fillStyle = frame === 'frame' ? '#141414' : '#8a6238'; x.fillRect(0, 0, c.width, c.height);
+      x.strokeStyle = frame === 'frame' ? '#3a3a3a' : '#b98d55'; x.lineWidth = max(1, fb * 0.18); x.strokeRect(fb * 0.3, fb * 0.3, c.width - fb * 0.6, c.height - fb * 0.6);
+      if (mat) { x.fillStyle = '#f6f2e8'; x.fillRect(fb, fb, W + 2 * mat, H + 2 * mat); }
+      x.drawImage(b, o, o);
+    } else if (frame === 'scroll') {
+      const side = round(W * 0.11), top = round(W * 0.42), bot = round(W * 0.26), band = max(2, round(W * 0.03));
+      const knob = round(W * 0.05), rodT = max(3, round(W * 0.03)), rodB = max(4, round(W * 0.055)), cord = round(W * 0.12);
+      const MW = W + 2 * side, x0 = knob, y0 = cord;
+      c = mkCanvas(MW + 2 * knob, cord + top + H + bot + rodB); x = c.getContext('2d');
+      x.strokeStyle = '#4a3a28'; x.lineWidth = max(2, W * 0.006);
+      x.beginPath(); x.moveTo(x0 + MW * 0.3, y0); x.lineTo(c.width / 2, max(2, cord * 0.15)); x.lineTo(x0 + MW * 0.7, y0); x.stroke();
+      x.fillStyle = '#ddd0b2'; x.fillRect(x0, y0, MW, top + H + bot);
+      x.fillStyle = '#86704f'; x.fillRect(x0 + side * 0.42, y0 + top * 0.58, W + side * 1.16, H + top * 0.42 + bot * 0.46);
+      x.fillStyle = '#c9a650'; x.fillRect(x0 + side, y0 + top - band, W, band); x.fillRect(x0 + side, y0 + top + H, W, band);
+      x.fillStyle = '#86704f'; for (const f of [0.36, 0.64]) x.fillRect(x0 + MW * f - band * 0.6, y0, band * 1.2, top * 0.58);
+      x.drawImage(b, x0 + side, y0 + top);
+      x.fillStyle = '#2b1d14'; x.fillRect(x0 - knob * 0.2, y0 - rodT / 2, MW + knob * 0.4, rodT);
+      x.fillRect(x0, y0 + top + H + bot, MW, rodB);
+      x.fillStyle = '#17100a'; for (const kx of [0, c.width - knob]) x.fillRect(kx, y0 + top + H + bot - rodB * 0.15, knob, rodB * 1.3);
+    } else c = b;
+    if (max(c.width, c.height) > 2048) {   // limite di sicurezza per le texture
+      const s = 2048 / max(c.width, c.height), d = mkCanvas(c.width * s, c.height * s);
+      d.getContext('2d').drawImage(c, 0, 0, d.width, d.height); c = d;
+    }
+    return c;
+  }
+  async function composeDecal(it) { return frameCanvas(it.type === 'txt' ? await textCanvas(it) : await imgCanvas(it.src), it.frame); }
+  const decalTex = new Map();
+  function getDecalTex(it) {
+    const key = decalKey(it); let e = decalTex.get(it.id);
+    if (e && (e.key === key || e.loading === key)) return e.tex;
+    e = { key: e ? e.key : '', tex: e ? e.tex : null, loading: key }; decalTex.set(it.id, e);
+    composeDecal(it).then(cv => {
+      const cur = decalTex.get(it.id); if (!cur || cur.loading !== key) return;
+      if (cur.tex) eng.freeTex(cur.tex);
+      cur.tex = eng.texture(cv); cur.key = key; cur.loading = null; dirty = true;
+    }).catch(() => { const cur = decalTex.get(it.id); if (cur && cur.loading === key) { cur.loading = null; cur.key = key; } });
+    return e.tex;
+  }
+  function decalMatrix(it, d) {
+    const c = cos(it.rot), s = sin(it.rot);
+    if (d.wall) return M4.compose(it.x, it.elev + d.h / 2, it.z, it.rot, d.w, d.h, 1);
+    const y = floorTh(it.x, it.z) + 0.004, W = d.w, H = d.d;
+    return new Float32Array([c * W, 0, -s * W, 0, -s * H, 0, -c * H, 0, 0, 1, 0, 0, it.x, y, it.z, 1]);
+  }
+  /* immagine scelta dall'utente → dati compressi che entrano nella sala condivisa */
+  async function compressImage(file, budget) {
+    const url = URL.createObjectURL(file);
+    try {
+      const im = await loadImg(url);
+      const iw = im.naturalWidth || 800, ih = im.naturalHeight || 800;
+      let maxD = 1100, q = 0.82;
+      for (; ;) {
+        const s = min(1, maxD / max(iw, ih)), c = mkCanvas(iw * s, ih * s), x = c.getContext('2d');
+        x.drawImage(im, 0, 0, c.width, c.height);
+        let alpha = false;
+        try { const px = x.getImageData(0, 0, c.width, c.height).data; for (let i = 3; i < px.length; i += 16) if (px[i] < 250) { alpha = true; break; } } catch (e) { alpha = true; }
+        let src = c.toDataURL('image/webp', q);
+        if (!src.startsWith('data:image/webp')) src = alpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', q);
+        if (src.length <= budget) return { src, w: c.width, h: c.height };
+        if (maxD <= 240) return null;
+        maxD = round(maxD * 0.84); q = max(0.7, q - 0.03);
+      }
+    } finally { URL.revokeObjectURL(url); }
+  }
+  const usedBy = skip => snapshot().length - (skip && skip.src ? skip.src.length : 0);
+  function openDecal(type, it) {
+    const ed = !!it, cur = it || { type, mount: 'wall', frame: type === 'img' ? 'scroll' : 'none', w: type === 'img' ? 1.2 : 1.6, text: '', font: 'brush', color: '#1d1d1d', bg: '', vert: false, name: '' };
+    const longSide = round(max(cur.w, cur.w * (cur.asp || 1)) * 100);
+    const opt = (o, v) => Object.entries(o).map(([k, n]) => `<option value="${k}"${k === v ? ' selected' : ''}>${esc(n.n || n)}</option>`).join('');
+    const free = max(0, ROOM_LIMIT - usedBy(it));
+    openModal(`<h2>${type === 'img' ? (ed ? 'Modifica immagine' : 'Immagine o dipinto') : (ed ? 'Modifica scritta' : 'Scritta')}</h2><form id="f-decal">
+      ${type === 'img' ? `<div class="dc-file"><label class="btn" for="dc-file">${ed ? 'Cambia immagine' : 'Scegli immagine'}</label><input id="dc-file" type="file" accept="image/*"><span id="dc-fname">${ed ? 'Immagine attuale' : 'Nessuna immagine scelta'}</span></div>
+        <label class="fld" for="dc-name"><span>Nome (facoltativo)</span><input id="dc-name" type="text" maxlength="40" value="${esc(cur.name || '')}" placeholder="Es. Drago e tigre"></label>`
+      : `<label class="fld col" for="dc-text"><span>Testo (vai a capo per più righe)</span><textarea id="dc-text" rows="3" maxlength="300" placeholder="Es. 空手道 oppure il nome della palestra">${esc(cur.text || '')}</textarea></label>
+        <div class="g3"><label class="fld" for="dc-font"><span>Carattere</span><select id="dc-font">${opt(FONTS, cur.font)}</select></label>
+        <label class="fld" for="dc-color"><span>Colore</span><input id="dc-color" type="color" value="${cur.color}"></label>
+        <label class="fld" for="dc-bgc"><span>Sfondo</span><input id="dc-bgc" type="color" value="${cur.bg || '#f4efe2'}"></label></div>
+        <div class="row"><label class="chk" for="dc-bg"><input type="checkbox" id="dc-bg"${cur.bg ? ' checked' : ''}>Con sfondo</label><label class="chk" for="dc-vert"><input type="checkbox" id="dc-vert"${cur.vert ? ' checked' : ''}>Verticale (stile giapponese)</label></div>`}
+      <div class="g3"><label class="fld" for="dc-mount"><span>Dove</span><select id="dc-mount"><option value="wall"${cur.mount === 'wall' ? ' selected' : ''}>Sulla parete</option><option value="floor"${cur.mount === 'floor' ? ' selected' : ''}>Sul pavimento</option></select></label>
+      <label class="fld" for="dc-frame"><span>Montatura</span><select id="dc-frame">${opt(FRAMES, cur.frame)}</select></label>
+      <label class="fld" for="dc-size"><span>Lato lungo</span><input id="dc-size" type="number" inputmode="decimal" min="10" max="1200" value="${longSide}" required><em>cm</em></label></div>
+      <div class="dc-prev"><canvas id="dc-cv" width="10" height="10" aria-label="Anteprima"></canvas><span id="dc-info" class="mono"></span></div>
+      ${type === 'img' ? `<p class="dc-note">Le immagini vengono compresse per stare nella sala condivisa (spazio libero circa ${round(free / 1000)} kB). Formati: JPG, PNG, WEBP, SVG.</p>` : ''}
+      <div class="row"><button type="button" data-close>Annulla</button><button type="submit" class="primary" id="dc-ok">${ed ? 'Salva' : 'Aggiungi alla sala'}</button></div></form>`);
+    let src = cur.src || '', asp = cur.asp || 1, token = 0, busy = false;
+    const val = () => {
+      const d = { type, mount: $('#dc-mount').value, frame: $('#dc-frame').value };
+      if (type === 'img') Object.assign(d, { src, name: $('#dc-name').value.trim() });
+      else Object.assign(d, { text: $('#dc-text').value, font: $('#dc-font').value, color: $('#dc-color').value, bg: $('#dc-bg').checked ? $('#dc-bgc').value : '', vert: $('#dc-vert').checked });
+      return d;
+    };
+    async function preview() {
+      const t = ++token, d = val(), cv = $('#dc-cv');
+      if ((type === 'img' && !src) || (type === 'txt' && !d.text.trim())) { cv.width = cv.height = 10; cv.getContext('2d').clearRect(0, 0, 10, 10); $('#dc-info').textContent = type === 'img' ? 'Scegli un\'immagine' : 'Scrivi il testo'; return; }
+      try {
+        const c = await composeDecal(d); if (t !== token || !cv.isConnected) return;
+        asp = c.height / c.width;
+        const s = min(1, 520 / max(c.width, c.height)); cv.width = max(1, round(c.width * s)); cv.height = max(1, round(c.height * s));
+        cv.getContext('2d').drawImage(c, 0, 0, cv.width, cv.height);
+        const L = (parseFloat(String($('#dc-size').value).replace(',', '.')) || 100) / 100, w = asp >= 1 ? L / asp : L;
+        $('#dc-info').textContent = `${round(w * 100)} × ${round(w * asp * 100)} cm`;
+      } catch (e) { if (t === token) $('#dc-info').textContent = 'Non riesco a leggere questa immagine.'; }
+    }
+    let pt = 0; const later = () => { clearTimeout(pt); pt = setTimeout(preview, 180); };
+    $('#f-decal').addEventListener('input', e => { if (e.target.id !== 'dc-file') later(); });
+    $('#f-decal').addEventListener('change', e => { if (e.target.id !== 'dc-file') later(); });
+    if (type === 'img') $('#dc-file').addEventListener('change', async e => {
+      const f = e.target.files && e.target.files[0]; if (!f) return;
+      const budget = min(110000, ROOM_LIMIT - usedBy(it) - 3000);
+      if (budget < 12000) { $('#dc-fname').textContent = 'Spazio esaurito: elimina un\'altra immagine dalla sala.'; return; }
+      busy = true; $('#dc-ok').disabled = true; $('#dc-fname').textContent = 'Preparo l\'immagine…';
+      try {
+        const r = await compressImage(f, budget);
+        if (!r) { $('#dc-fname').textContent = 'Immagine troppo pesante anche ridotta. Provane un\'altra.'; return; }
+        src = r.src; $('#dc-fname').textContent = `${f.name.slice(0, 40)} · ${r.w}×${r.h} px`;
+        if (!$('#dc-name').value.trim()) $('#dc-name').value = f.name.replace(/\.[^.]+$/, '').slice(0, 40);
+        preview();
+      } catch (err) { $('#dc-fname').textContent = 'Non riesco a leggere questa immagine. Prova un JPG o PNG.'; }
+      finally { busy = false; $('#dc-ok').disabled = false; }
+    });
+    $('#f-decal').addEventListener('submit', async e => {
+      e.preventDefault(); if (busy) return;
+      const d = val();
+      if (type === 'img' && !src) { toast('Scegli prima un\'immagine.'); return; }
+      if (type === 'txt' && !d.text.trim()) { toast('Scrivi il testo da mostrare.'); return; }
+      clearTimeout(pt); await preview();
+      const L = clamp((parseFloat(String($('#dc-size').value).replace(',', '.')) || 100) / 100, 0.1, 12);
+      d.asp = asp; d.w = asp >= 1 ? L / asp : L;
+      const data = cleanDecal(d); if (!data) { toast('Dati della decorazione non validi.'); return; }
+      closeModal();
+      if (ed) {
+        const live = S.items.find(i => i.id === it.id); if (!live) return;
+        pushHist();
+        const moved = live.mount !== data.mount;
+        Object.assign(live, data);
+        if (moved) { delete live.wall; delete live.u; placeNew(live); } else clampItem(live);
+        if (snapshot().length > ROOM_LIMIT) { undo(); toast('Spazio della sala esaurito: elimina un\'immagine o usane una più piccola.', 6000); return; }
+        select(live.id); changed();
+      } else {
+        addItem(DECAL, data);
+        if (snapshot().length > ROOM_LIMIT) { undo(); toast('Spazio della sala esaurito: elimina un\'immagine o usane una più piccola.', 6000); }
+      }
+    });
+    if (type === 'txt') $('#dc-text').focus();
+    preview();
+  }
+  function resizeDecal(f) {
+    const it = selItem(); if (!it || it.k !== DECAL) return;
+    pushHist(); it.w = clamp(it.w * f, 0.05, 12); clampItem(it); changed();
+  }
+
+  /* ---------------- posizione esatta ---------------- */
+  const CORNER = { A: 'D', B: 'A', C: 'D', D: 'A' };
+  function openPos(it) {
+    const d = defOf(it), num = (id, lab, v, unit = 'm', step = '0.01') => `<label class="fld" for="${id}"><span>${lab}</span><input id="${id}" type="number" inputmode="decimal" step="${step}" value="${v}"><em>${unit}</em></label>`;
+    let body;
+    if (d.wall) {
+      body = `<label class="fld" for="ps-wall"><span>Parete</span><select id="ps-wall">${WALL_KEYS.map(k => `<option value="${k}"${it.wall === k ? ' selected' : ''}>Parete ${k}</option>`).join('')}</select></label>`
+        + num('ps-u', `Distanza dall'angolo con la parete <b id="ps-cn">${CORNER[it.wall]}</b>`, +(it.u - d.w / 2).toFixed(2))
+        + (d.fixElev ? '' : num('ps-e', 'Distanza da terra (bordo basso)', +it.elev.toFixed(2)));
+    } else {
+      const [hx, hz] = halfExt(it);
+      body = num('ps-a', 'Distanza dalla parete A', +(it.z - hz).toFixed(2)) + num('ps-d', 'Distanza dalla parete D', +(it.x - hx).toFixed(2))
+        + num('ps-r', 'Rotazione', round(((it.rot * 180 / PI) % 360 + 360) % 360), '°', '1') + (d.hang ? num('ps-e', 'Distanza da terra (bordo basso)', +it.elev.toFixed(2)) : '');
+    }
+    openModal(`<h2>Posizione esatta</h2><p>${esc(d.name)} · le distanze sono misurate dal bordo dell'oggetto.</p><form id="f-pos">${body}
+      <div class="row"><button type="button" data-close>Annulla</button><button type="submit" class="primary">Applica</button></div></form>`);
+    const ws = $('#ps-wall'); if (ws) ws.addEventListener('change', () => { $('#ps-cn').textContent = CORNER[ws.value]; });
+    $('#f-pos').addEventListener('submit', e => {
+      e.preventDefault();
+      const v = id => { const el = $('#' + id); if (!el) return null; const n = parseFloat(String(el.value).replace(',', '.')); return isFinite(n) ? n : null; };
+      const live = S.items.find(i => i.id === it.id); if (!live) { closeModal(); return; }
+      pushHist();
+      if (d.wall) placeOnWall(live, ws.value, max(0, v('ps-u') ?? 0) + d.w / 2, v('ps-e') ?? live.elev);
+      else {
+        if (v('ps-r') != null) live.rot = ((v('ps-r') % 360 + 360) % 360) * PI / 180;
+        const [hx, hz] = halfExt(live);
+        live.x = max(0, v('ps-d') ?? live.x - hx) + hx; live.z = max(0, v('ps-a') ?? live.z - hz) + hz;
+        if (v('ps-e') != null) live.elev = max(0, v('ps-e'));
+        clampItem(live);
+      }
+      closeModal(); changed(); focusItem(live);
+    });
+  }
+
+  /* ---------------- metro ---------------- */
+  const meas = { on: false, pts: [] };
+  function setMeasure(on) {
+    meas.on = on; meas.pts = [];
+    $('#btn-meas').setAttribute('aria-pressed', String(on));
+    canvas.classList.toggle('measuring', on);
+    if (on) { select(null); toast('Metro: tocca due punti del pavimento. Tocca di nuovo Metro per uscire.', 5000); }
+    else $('#meas-label').hidden = true;
+    dirty = true;
+  }
+  function addMeasPoint(px, py) {
+    const q = rayPlaneY(rayAt(px, py), 0.04); if (!q) return;
+    const p = [clamp(round(q[0] * 100) / 100, 0, S.room.W), 0.045, clamp(round(q[2] * 100) / 100, 0, S.room.D)];
+    if (meas.pts.length >= 2) meas.pts = [];
+    meas.pts.push(p); dirty = true;
+  }
+  function measDraws(dr) {
+    if (!meas.on) return;
+    for (const p of meas.pts) dr.push({ mesh: R.outline, m: M4.compose(p[0], p[1] + 0.03, p[2], 0, 0.07, 0.06, 0.07) });
+    if (meas.pts.length === 2) {
+      const [a, b] = meas.pts, dx = b[0] - a[0], dz = b[2] - a[2], l = hypot(dx, dz);
+      if (l > 0.005) dr.push({ mesh: R.outline, m: M4.compose((a[0] + b[0]) / 2, 0.06, (a[2] + b[2]) / 2, atan2(-dz, dx), l, 0.012, 0.025) });
+    }
+  }
+  function placeMeasLabel() {
+    const el = $('#meas-label');
+    if (!meas.on || meas.pts.length < 2 || !lastVP) { el.hidden = true; return; }
+    const [a, b] = meas.pts, m = lastVP, p = [(a[0] + b[0]) / 2, 0.08, (a[2] + b[2]) / 2];
+    const w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15];
+    if (w <= 0.01) { el.hidden = true; return; }
+    const x = (m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12]) / w, y = (m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13]) / w;
+    const dx = abs(b[0] - a[0]), dz = abs(b[2] - a[2]);
+    el.textContent = `${fm(hypot(dx, dz))} m` + (dx > 0.05 && dz > 0.05 ? `  (${fm(dx)} × ${fm(dz)})` : '');
+    el.style.transform = `translate(${((x * 0.5 + 0.5) * canvas.clientWidth).toFixed(1)}px,${((0.5 - y * 0.5) * canvas.clientHeight).toFixed(1)}px) translate(-50%,-140%)`;
+    el.hidden = false;
+  }
 
   /* ---------------- pavimento ---------------- */
   function paintAt(px, py, act) {
@@ -726,6 +1061,7 @@
     if (ptr.size > 2) return;
     act = { type: 'orbit', x0: e.clientX, y0: e.clientY, lx: e.clientX, ly: e.clientY, moved: false };
     if (e.button === 2 || e.button === 1 || e.shiftKey) { act.type = S.tab === 'floor' && !e.shiftKey && S.view !== 'plan' ? 'orbit' : 'pan'; return; }
+    if (meas.on) { act.type = S.view === 'plan' ? 'pan' : 'orbit'; act.tap = true; act.meas = true; return; }
     if (S.tab === 'floor') { act.type = 'paint'; paintAt(e.clientX, e.clientY, act); return; }
     const hit = pickItem(e.clientX, e.clientY);
     if (hit) {
@@ -783,7 +1119,8 @@
     ptr.delete(e.pointerId);
     if (!act) return;
     if (act.type === 'pinch') { act = ptr.size ? { type: 'none' } : null; return; }
-    if (act.tap && !act.moved && e.type === 'pointerup') {
+    if (act.meas && !act.moved && e.type === 'pointerup') addMeasPoint(e.clientX, e.clientY);
+    else if (act.tap && !act.moved && e.type === 'pointerup') {
       const now = performance.now();
       if (S.view === 'walk' && now - lastTap.t < 380 && hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
         const q = rayPlaneY(rayAt(e.clientX, e.clientY), 0.04);
@@ -815,7 +1152,7 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
     if (e.key === 'Delete' || e.key === 'Backspace') { if (selItem()) { e.preventDefault(); deleteSel(); } }
     else if (e.key === 'r' || e.key === 'R') rotateSel(e.shiftKey ? -PI / 12 : PI / 12);
-    else if (e.key === 'Escape') { select(null); closeMenu(); closeModal(); }
+    else if (e.key === 'Escape') { select(null); closeMenu(); closeModal(); if (meas.on) setMeasure(false); }
     else if (e.key === 'd' || e.key === 'D') duplicateSel();
   });
 
@@ -845,7 +1182,10 @@
     const cats = [['tutti', 'Tutti']].concat(CATS);
     $('#cat-chips').innerHTML = cats.map(([id, n]) => `<button type="button" class="chip" data-cat="${id}" aria-pressed="${S.cat === id}">${esc(n)}</button>`).join('');
     const list = [...DEF.values()].filter(d => S.cat === 'tutti' || d.cat === S.cat);
-    let h = list.map(d => `<button type="button" class="card" data-add="${esc(d.k)}" title="Aggiungi alla sala">
+    let h = '';
+    if (S.cat === 'tutti' || S.cat === 'decor') h += `<button type="button" class="card deco" data-decal="img" title="Aggiungi un'immagine o un dipinto"><svg viewBox="0 0 64 64" aria-hidden="true"><rect x="16" y="6" width="32" height="52" rx="2" fill="#ddd0b2"/><rect x="21" y="18" width="22" height="28" fill="#f4efe2"/><path d="M23 40c4-6 7-9 10-6s5 2 8-5v15H23z" fill="#3b3a38"/><circle cx="36" cy="25" r="3" fill="#b8432f"/><rect x="13" y="56" width="38" height="4" rx="2" fill="#2b1d14"/><rect x="16" y="5" width="32" height="2.5" fill="#2b1d14"/></svg><span class="nm">Immagine o dipinto</span><span class="dm">tua immagine · parete o pavimento</span></button>`
+      + `<button type="button" class="card deco" data-decal="txt" title="Aggiungi una scritta"><svg viewBox="0 0 64 64" aria-hidden="true"><rect x="10" y="10" width="44" height="44" rx="3" fill="#f4efe2"/><text x="32" y="44" text-anchor="middle" font-size="30" font-family="serif" fill="#1d1d1d">字</text></svg><span class="nm">Scritta</span><span class="dm">kanji, motto, nome · anche verticale</span></button>`;
+    h += list.map(d => `<button type="button" class="card" data-add="${esc(d.k)}" title="Aggiungi alla sala">
       <img alt="" src="${thumbs.get(d.k) || ''}"><span class="nm">${esc(d.name)}</span>
       <span class="dm">${cm(d.w)}×${cm(d.d)}×${cm(d.h)} cm${d.wall ? ' · parete' : d.hang ? ' · appeso' : ''}</span>
       ${d.custom ? `<span class="del" data-delcustom="${esc(d.k)}" role="button" aria-label="Elimina ${esc(d.name)} dal catalogo">×</span>` : ''}</button>`).join('');
@@ -868,22 +1208,32 @@
   function renderFloorInfo() {
     $('#floor-info').innerHTML = floorStats().map(s => `<li><i style="background:${s.f.col}"></i>${esc(s.f.name)}<b>${s.f.th ? s.n + ' pz · ' : ''}${fm(s.a, 1)} m²</b></li>`).join('');
   }
-  function renderList() {
+  const gkey = it => it.k === DECAL ? 'd' + it.id : it.k;
+  function listRows(items, empty) {
     const g = new Map();
-    for (const it of S.items) { const d = defOf(it); g.set(d.k, (g.get(d.k) || 0) + 1); }
-    const rows = [...g.entries()].map(([k, n]) => {
-      const d = DEF.get(k), lab = n > 1 ? `Elimina un ${esc(d.name)} (ne restano ${n - 1})` : `Elimina ${esc(d.name)}`;
-      return `<li><button type="button" class="go" data-go="${esc(k)}" title="Mostra nella vista"><span>${esc(d.name)}<small>${cm(d.w)}×${cm(d.d)}×${cm(d.h)} cm</small></span><b>× ${n}</b></button><button type="button" class="x" data-delk="${esc(k)}" aria-label="${lab}" title="${lab}">×</button></li>`;
+    for (const it of items) { const k = gkey(it), e = g.get(k); if (e) e.n++; else g.set(k, { it, n: 1 }); }
+    const rows = [...g.entries()].map(([k, { it, n }]) => {
+      const d = defOf(it), lab = n > 1 ? `Elimina un ${esc(d.name)} (ne restano ${n - 1})` : `Elimina ${esc(d.name)}`;
+      const dims = it.k === DECAL ? `${cm(d.w)}×${cm(d.wall ? d.h : d.d)} cm · ${d.wall ? 'parete ' + it.wall : 'pavimento'}` : `${cm(d.w)}×${cm(d.d)}×${cm(d.h)} cm`;
+      return `<li><button type="button" class="go" data-go="${esc(k)}" title="Mostra nella vista"><span>${esc(d.name)}<small>${dims}</small></span><b>× ${n}</b></button><button type="button" class="x" data-delk="${esc(k)}" aria-label="${lab}" title="${lab}">×</button></li>`;
     }).join('');
-    $('#list-items').innerHTML = rows || '<li class="empty">Nessun attrezzo nella sala. Aprine uno dal catalogo.</li>';
+    return rows || (empty ? `<li class="empty">${empty}</li>` : '');
+  }
+  function renderList() {
+    const eq = S.items.filter(i => i.k !== DECAL), dc = S.items.filter(i => i.k === DECAL);
+    $('#list-items').innerHTML = listRows(eq, 'Nessun attrezzo nella sala. Aprine uno dal catalogo.');
+    $('#list-decor').innerHTML = listRows(dc, '');
+    $('#h-decor').hidden = $('#list-decor').hidden = !dc.length;
     $('#list-floor').innerHTML = floorStats().map(s => `<li><span><i style="background:${s.f.col}"></i>${esc(s.f.name)}${s.f.th ? `<small>piastrelle 1×1 m, ${cm(s.f.th)} cm</small>` : ''}</span><b>${s.f.th ? s.n + ' pz · ' : ''}${fm(s.a, 1)} m²</b></li>`).join('');
-    $('#list-tot').textContent = `${S.items.length} attrezzi · sala ${fm(S.room.W, 1)} × ${fm(S.room.D, 1)} m (${fm(S.room.W * S.room.D, 1)} m²)`;
+    $('#list-tot').textContent = `${eq.length} attrezzi${dc.length ? ' · ' + dc.length + ' decorazioni' : ''} · sala ${fm(S.room.W, 1)} × ${fm(S.room.D, 1)} m (${fm(S.room.W * S.room.D, 1)} m²)`;
   }
   function listText() {
     const g = new Map();
-    for (const it of S.items) { const d = defOf(it); g.set(d.name, (g.get(d.name) || 0) + 1); }
+    for (const it of S.items) if (it.k !== DECAL) { const d = defOf(it); g.set(d.name, (g.get(d.name) || 0) + 1); }
     let t = `SALA ${fm(S.room.W, 1)} × ${fm(S.room.D, 1)} m\n\nATTREZZI\n`;
     for (const [n, q] of g) t += `- ${q} × ${n}\n`;
+    const dc = S.items.filter(i => i.k === DECAL);
+    if (dc.length) { t += '\nDECORAZIONI\n'; for (const it of dc) { const d = defOf(it); t += `- ${d.name}: ${cm(d.w)}×${cm(d.wall ? d.h : d.d)} cm, ${d.wall ? 'parete ' + it.wall : 'pavimento'}\n`; } }
     t += '\nPAVIMENTO\n';
     for (const s of floorStats()) t += `- ${s.f.name}: ${s.f.th ? s.n + ' piastrelle, ' : ''}${fm(s.a, 1)} m²\n`;
     return t;
@@ -895,6 +1245,9 @@
     $('#room-dims').innerHTML = num('rm-W', 'Larghezza (pareti A e C)', r.W, 3, 40) + num('rm-D', 'Profondità (pareti B e D)', r.D, 3, 40)
       + num('rm-hLow', 'Altezza lato parete A', r.hLow, 2.2, 12) + num('rm-hHigh', 'Altezza lato parete C', r.hHigh, 2.2, 15);
     $('#rm-roof').checked = S.showRoof;
+    const cols = r.cols || {};
+    $('#wall-cols').innerHTML = WALL_KEYS.map(k => `<label class="wc" for="wc-${k}"><input type="color" id="wc-${k}" data-wall="${k}" value="${cols[k] || WALL_COL}"><span>Parete ${k}</span></label>`).join('');
+    $('#wall-presets').innerHTML = WALL_PRESETS.map(([n, c]) => `<button type="button" class="chip pc" data-wcol="${c}" title="Tutte le pareti: ${esc(n)}"><i style="background:${c}"></i>${esc(n)}</button>`).join('');
     $('#room-ops').innerHTML = r.openings.map((o, i) => `<div class="op" data-i="${i}">
       <div class="op-h"><select id="op-t-${i}" data-f="t" aria-label="Tipo"><option value="win"${o.t === 'win' ? ' selected' : ''}>Finestra</option><option value="door"${o.t === 'door' ? ' selected' : ''}>Portone</option></select>
       <select id="op-w-${i}" data-f="wall" aria-label="Parete">${WALL_KEYS.map(k => `<option value="${k}"${o.wall === k ? ' selected' : ''}>Parete ${k}</option>`).join('')}</select>
@@ -917,16 +1270,21 @@
   function updateSelbar() {
     const it = selItem(), bar = $('#selbar');
     if (!it) { bar.hidden = true; return; }
-    const d = defOf(it), r = S.room;
-    let h = `<div class="sb-top"><strong>${esc(d.name)}</strong><span class="mono">${cm(d.w)}×${cm(d.d)}×${cm(d.h)} cm</span></div><div class="sb-btn">`;
+    const d = defOf(it), r = S.room, dec = it.k === DECAL;
+    const dims = dec ? `${cm(d.w)}×${cm(d.wall ? d.h : d.d)} cm` : `${cm(d.w)}×${cm(d.d)}×${cm(d.h)} cm`;
+    let h = `<div class="sb-top"><strong>${esc(d.name)}</strong><span class="mono">${dims}</span></div><div class="sb-btn">`;
     if (!d.wall) h += `<button type="button" data-act="rl" aria-label="Ruota di 15 gradi a sinistra">↺ 15°</button><button type="button" data-act="rr" aria-label="Ruota di 15 gradi a destra">↻ 15°</button><button type="button" data-act="r90">90°</button>`;
+    if (dec) h += `<button type="button" data-act="sz-" aria-label="Più piccola del 10%">− 10%</button><button type="button" data-act="sz+" aria-label="Più grande del 10%">+ 10%</button>`;
+    if (dec || d.custom) h += `<button type="button" data-act="edit">Modifica</button>`;
     h += `<button type="button" data-act="dup">Duplica</button><button type="button" data-act="del" class="danger">Elimina</button></div>`;
     if (d.hang || (d.wall && !d.fixElev)) h += `<div class="sb-el"><span>Da terra</span><button type="button" data-act="e-" aria-label="Abbassa di 5 cm">−</button><b class="mono">${fm(it.elev)} m</b><button type="button" data-act="e+" aria-label="Alza di 5 cm">+</button></div>`;
-    if (d.wall) h += `<div class="sb-ds mono"><span>Parete ${it.wall}</span><span>dall'angolo ${fm(it.u - d.w / 2)} m</span></div>`;
+    h += `<button type="button" class="sb-ds mono" data-act="pos" title="Inserisci la posizione esatta">`;
+    if (d.wall) h += `<span>Parete ${it.wall}</span><span>dall'angolo con ${CORNER[it.wall]} ${fm(it.u - d.w / 2)} m</span>`;
     else {
       const [hx, hz] = halfExt(it);
-      h += `<div class="sb-ds mono"><span>A ${fm(max(0, it.z - hz))}</span><span>B ${fm(max(0, r.W - it.x - hx))}</span><span>C ${fm(max(0, r.D - it.z - hz))}</span><span>D ${fm(max(0, it.x - hx))}</span><em>m dalle pareti</em></div>`;
+      h += `<span>A ${fm(max(0, it.z - hz))}</span><span>B ${fm(max(0, r.W - it.x - hx))}</span><span>C ${fm(max(0, r.D - it.z - hz))}</span><span>D ${fm(max(0, it.x - hx))}</span><em>m dalle pareti</em>`;
     }
+    h += `<em class="ed">Posizione esatta</em></button>`;
     if (overlapsOfSel().size) h += `<div class="sb-warn">Si sovrappone a un altro attrezzo (in rosso).</div>`;
     bar.innerHTML = h; bar.hidden = false;
   }
@@ -945,6 +1303,7 @@
       syncCustomDefs(); renderCatalog(); changed(); return;
     }
     if (e.target.closest('#btn-custom')) { openCustom(); return; }
+    const dk = e.target.closest('[data-decal]'); if (dk) { openDecal(dk.dataset.decal); return; }
     const b = e.target.closest('[data-add]'); if (b) addItem(b.dataset.add);
   });
   $('#floor-pal').addEventListener('click', e => { const b = e.target.closest('[data-floor]'); if (b) { S.paint = b.dataset.floor; renderFloorPalette(); } });
@@ -956,33 +1315,38 @@
     if (a === 'rl') rotateSel(PI / 12); else if (a === 'rr') rotateSel(-PI / 12); else if (a === 'r90') rotateSel(PI / 2);
     else if (a === 'dup') duplicateSel(); else if (a === 'del') deleteSel();
     else if (a === 'e-' && it) setElev(snap(it.elev - 0.05)); else if (a === 'e+' && it) setElev(snap(it.elev + 0.05));
+    else if (a === 'sz-') resizeDecal(1 / 1.1); else if (a === 'sz+') resizeDecal(1.1);
+    else if (a === 'pos' && it) openPos(it);
+    else if (a === 'edit' && it) { if (it.k === DECAL) openDecal(it.type, it); else { const c = S.custom.find(c => c.id === it.k); if (c) openCustom(c); } }
   });
-  /* elenco: la X toglie un attrezzo di quel tipo (quello selezionato se è di quel tipo, altrimenti l'ultimo aggiunto) */
+  $('#btn-meas').addEventListener('click', () => setMeasure(!meas.on));
+  /* elenco: tocco sulla riga = inquadra (con più pezzi uguali, ogni tocco il successivo); X = elimina uno */
   let goIdx = { k: '', i: -1 };
-  $('#list-items').addEventListener('click', e => {
+  $('#pane-list').addEventListener('click', e => {
     const g = e.target.closest('[data-go]');
     if (g) {
-      const k = g.dataset.go, all = S.items.filter(i => i.k === k);
+      const k = g.dataset.go, all = S.items.filter(i => gkey(i) === k);
       if (!all.length) return;
       const sel = selItem();
-      // primo tocco: quello selezionato (se è di questo tipo) o il primo; tocchi successivi: il seguente
-      const i = goIdx.k === k ? (goIdx.i + 1) % all.length : sel && sel.k === k ? all.indexOf(sel) : 0;
+      const i = goIdx.k === k ? (goIdx.i + 1) % all.length : sel && gkey(sel) === k ? all.indexOf(sel) : 0;
       goIdx = { k, i };
       const it = all[i];
       select(it.id); focusItem(it);
-      if (all.length > 1) toast(`${DEF.get(k).name}: ${i + 1} di ${all.length}. Tocca di nuovo per il successivo.`, 2600);
+      if (isNarrow()) setPanelOpen(false);   // sul telefono la vista prende tutto lo spazio, così l'oggetto non resta coperto
+      if (all.length > 1) toast(`${defOf(it).name}: ${i + 1} di ${all.length}. Tocca di nuovo per il successivo.`, 2600);
       return;
     }
     const b = e.target.closest('[data-delk]'); if (!b) return;
     const k = b.dataset.delk, sel = selItem();
-    const it = sel && sel.k === k ? sel : [...S.items].reverse().find(i => i.k === k);
+    const it = sel && gkey(sel) === k ? sel : [...S.items].reverse().find(i => gkey(i) === k);
     if (!it) return;
+    const name = defOf(it).name;
     pushHist();
     S.items = S.items.filter(i => i !== it);
     if (S.sel === it.id) S.sel = null;
     changed();
-    toast(`Eliminato: ${DEF.get(k).name}. Con ↶ lo ripristini.`);
-    const next = $('#list-items [data-delk="' + k + '"]') || $('#list-items [data-delk]');
+    toast(`Eliminato: ${name}. Con ↶ lo ripristini.`);
+    const next = $('#pane-list [data-delk="' + k + '"]') || $('#pane-list [data-delk]');
     if (next) next.focus();
   });
   $('#btn-undo').addEventListener('click', undo); $('#btn-redo').addEventListener('click', redo);
@@ -1001,6 +1365,15 @@
     applyRoom(r => { r[k] = v; });
     if (S.view !== 'walk') setView(S.view);
   });
+  $('#wall-cols').addEventListener('change', e => {
+    const k = e.target.dataset.wall; if (!k) return;
+    applyRoom(r => { r.cols = Object.assign({}, r.cols, { [k]: e.target.value }); });
+  });
+  $('#wall-presets').addEventListener('click', e => {
+    const b = e.target.closest('[data-wcol]'); if (!b) return;
+    const c = b.dataset.wcol;
+    applyRoom(r => { r.cols = c === WALL_COL ? {} : { A: c, B: c, C: c, D: c }; });
+  });
   $('#rm-roof').addEventListener('change', e => { S.showRoof = e.target.checked; try { localStorage.setItem('sala3d.prefs', JSON.stringify({ showRoof: S.showRoof })); } catch (_) { } dirty = true; });
   $('#room-ops').addEventListener('change', e => {
     const row = e.target.closest('.op'), f = e.target.dataset.f; if (!row || !f) return;
@@ -1017,21 +1390,32 @@
   $('#modal').addEventListener('click', e => { if (e.target.id === 'modal' || e.target.closest('[data-close]')) closeModal(); });
   document.addEventListener('click', e => { if (!e.target.closest('#menu') && !e.target.closest('#btn-menu')) closeMenu(); });
 
-  function openCustom() {
-    openModal(`<h2>Nuovo attrezzo</h2><form id="f-custom">
-      <label class="fld" for="cu-name"><span>Nome</span><input id="cu-name" type="text" maxlength="40" required placeholder="Es. Rastrelliera bastoni"></label>
-      <div class="g3"><label class="fld" for="cu-w"><span>Larghezza</span><input id="cu-w" type="number" inputmode="decimal" min="1" max="1000" value="100" required><em>cm</em></label>
-      <label class="fld" for="cu-d"><span>Profondità</span><input id="cu-d" type="number" inputmode="decimal" min="1" max="1000" value="50" required><em>cm</em></label>
-      <label class="fld" for="cu-h"><span>Altezza</span><input id="cu-h" type="number" inputmode="decimal" min="1" max="600" value="100" required><em>cm</em></label></div>
-      <div class="g3"><label class="fld" for="cu-shape"><span>Forma</span><select id="cu-shape"><option value="box">Parallelepipedo</option><option value="cyl">Cilindro</option></select></label>
-      <label class="fld" for="cu-mount"><span>Posizione</span><select id="cu-mount"><option value="floor">A terra</option><option value="wall">A parete</option></select></label>
-      <label class="fld" for="cu-col"><span>Colore</span><input id="cu-col" type="color" value="#3a6ea5"></label></div>
-      <div class="row"><button type="button" data-close>Annulla</button><button type="submit" class="primary">Aggiungi alla sala</button></div></form>`);
+  function openCustom(c0) {
+    const c = c0 || { name: '', w: 1, d: 0.5, h: 1, shape: 'box', wall: false, color: '#3a6ea5' };
+    openModal(`<h2>${c0 ? 'Modifica attrezzo' : 'Nuovo attrezzo'}</h2><form id="f-custom">
+      <label class="fld" for="cu-name"><span>Nome</span><input id="cu-name" type="text" maxlength="40" required placeholder="Es. Rastrelliera bastoni" value="${esc(c.name)}"></label>
+      <div class="g3"><label class="fld" for="cu-w"><span>Larghezza</span><input id="cu-w" type="number" inputmode="decimal" min="1" max="1000" value="${cm(c.w)}" required><em>cm</em></label>
+      <label class="fld" for="cu-d"><span>Profondità</span><input id="cu-d" type="number" inputmode="decimal" min="1" max="1000" value="${cm(c.d)}" required><em>cm</em></label>
+      <label class="fld" for="cu-h"><span>Altezza</span><input id="cu-h" type="number" inputmode="decimal" min="1" max="600" value="${cm(c.h)}" required><em>cm</em></label></div>
+      <div class="g3"><label class="fld" for="cu-shape"><span>Forma</span><select id="cu-shape"><option value="box">Parallelepipedo</option><option value="cyl"${c.shape === 'cyl' ? ' selected' : ''}>Cilindro</option></select></label>
+      <label class="fld" for="cu-mount"><span>Posizione</span><select id="cu-mount"><option value="floor">A terra</option><option value="wall"${c.wall ? ' selected' : ''}>A parete</option></select></label>
+      <label class="fld" for="cu-col"><span>Colore</span><input id="cu-col" type="color" value="${c.color}"></label></div>
+      <div class="row"><button type="button" data-close>Annulla</button><button type="submit" class="primary">${c0 ? 'Salva' : 'Aggiungi alla sala'}</button></div></form>`);
     $('#f-custom').addEventListener('submit', e => {
       e.preventDefault();
       const v = id => parseFloat(String($('#' + id).value).replace(',', '.')) / 100;
-      const c = { id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36), name: $('#cu-name').value.trim() || 'Attrezzo', w: clamp(v('cu-w') || 1, 0.05, 10), d: clamp(v('cu-d') || 0.5, 0.05, 10), h: clamp(v('cu-h') || 1, 0.01, 6), color: $('#cu-col').value, shape: $('#cu-shape').value, wall: $('#cu-mount').value === 'wall' };
-      closeModal(); pushHist(); S.custom.push(c); syncCustomDefs(); S.cat = 'miei'; renderCatalog(); undoSt.pop(); addItem(c.id);
+      const vals = { name: $('#cu-name').value.trim() || 'Attrezzo', w: clamp(v('cu-w') || 1, 0.05, 10), d: clamp(v('cu-d') || 0.5, 0.05, 10), h: clamp(v('cu-h') || 1, 0.01, 6), color: $('#cu-col').value, shape: $('#cu-shape').value, wall: $('#cu-mount').value === 'wall' };
+      closeModal();
+      if (c0) {
+        pushHist();
+        const wasWall = c0.wall;
+        S.custom = S.custom.map(x => x.id === c0.id ? Object.assign({ id: c0.id }, vals) : x);
+        syncCustomDefs();
+        for (const it of S.items) if (it.k === c0.id) { if (wasWall !== vals.wall) { delete it.wall; delete it.u; placeNew(it); } else clampItem(it); }
+        renderCatalog(); changed(); return;
+      }
+      const nc = Object.assign({ id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36) }, vals);
+      pushHist(); S.custom.push(nc); syncCustomDefs(); S.cat = 'miei'; renderCatalog(); undoSt.pop(); addItem(nc.id);
     });
     $('#cu-name').focus();
   }
@@ -1040,11 +1424,14 @@
       <li><b>Aggiungere</b> Apri Attrezzi e tocca una scheda: l'attrezzo compare al centro della vista.</li>
       <li><b>Spostare</b> Trascina l'attrezzo. Quelli a parete scorrono lungo i muri e si alzano o abbassano; quelli appesi arrivano fino al tetto.</li>
       <li><b>Vista</b> Un dito o tasto sinistro per ruotare, due dita o rotellina per lo zoom, due dita o tasto destro per spostarti.</li>
+      <li><b>Decorazioni</b> In Attrezzi, Decorazioni: aggiungi un'immagine (anche montata come rotolo giapponese) o una scritta, su una parete o sul pavimento. Si spostano trascinandole come gli attrezzi.</li>
+      <li><b>Posizione esatta</b> Seleziona un oggetto e tocca la riga delle distanze per scrivere le misure precise.</li>
+      <li><b>Metro</b> Tocca Metro in alto e poi due punti del pavimento per misurare una distanza.</li>
       <li><b>Pavimento</b> Scegli un materiale e tocca o trascina sulle piastrelle da 1×1 m. In Pianta è più comodo.</li>
       <li><b>Interno</b> Vedi la sala ad altezza occhi. Doppio tocco sul pavimento per spostarti.</li>
       <li><b>Insieme</b> Menu, Condividi: chi apre il link modifica questa stessa sala, senza account. Le modifiche arrivano in un paio di secondi.</li>
       <li><b>Tastiera</b> R ruota, D duplica, Canc elimina, Ctrl+Z annulla.</li>
-      <li><b>Misure</b> In Sala correggi dimensioni, finestre e portone: quelle iniziali sono stimate dalle foto.</li></ul>
+      <li><b>Sala</b> Correggi dimensioni, finestre e portone (quelle iniziali sono stimate dalle foto) e scegli il colore di ogni parete.</li></ul>
       <div class="row"><button type="button" class="primary" data-close>Ho capito</button></div>`);
   }
   function exportFile() {

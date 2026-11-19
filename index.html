@@ -8,7 +8,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <title>Progetto Sala 3D</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+JP:wght@700&family=Yuji+Syuku&display=swap" rel="stylesheet">
 <style>
 :root {
   /* layout: vista 3D a tutto schermo; strumenti in colonna a sinistra (PC) o in fondo (telefono) */
@@ -139,6 +139,29 @@ button { cursor: pointer; }
 #net[data-s="ok"] { background: #2e9d5b; opacity: 1; }
 #net[data-s="off"] { background: #d99a1c; opacity: 1; }
 #veil { position: absolute; inset: 0; display: grid; place-items: center; background: var(--viewport); color: var(--muted); font-weight: 600; z-index: 8; }
+#meas-label { position: absolute; top: 0; left: 0; background: var(--accent); color: var(--accent-ink); padding: 5px 9px; border-radius: 8px; font-size: 13px; font-weight: 500; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
+#gl.measuring { cursor: crosshair; }
+.seg button[aria-pressed="true"]#btn-meas { background: var(--accent); color: var(--accent-ink); }
+.card.deco svg { width: 76px; height: 76px; }
+#wall-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.wc { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.wc input { width: 100%; height: 38px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; }
+#wall-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip.pc { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 5px 10px 5px 6px; }
+.chip.pc i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(128, 128, 128, 0.5); }
+.fld.col { flex-direction: column; align-items: stretch; gap: 4px; }
+.fld textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font: 400 15px var(--f-ui); resize: vertical; }
+.dc-file { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.dc-file input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.dc-file .btn { cursor: pointer; color: var(--ink); }
+.dc-file input:focus-visible + span, .dc-file .btn:focus-within { outline: 2px solid var(--accent); }
+.dc-prev { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px; border-radius: 10px; background: repeating-conic-gradient(var(--chip) 0% 25%, var(--panel) 0% 50%) 50% / 16px 16px; }
+.dc-prev canvas { max-width: 100%; max-height: 240px; width: auto; height: auto; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); }
+.dc-prev span { font-size: 12px; color: var(--muted); background: var(--panel); padding: 2px 8px; border-radius: 6px; }
+.dc-note { font-size: 12px !important; }
+button.sb-ds { border: 1px dashed var(--line); background: none; border-radius: 8px; padding: 6px 8px; text-align: left; cursor: pointer; align-items: center; }
+button.sb-ds:hover { border-color: var(--muted); }
+.sb-ds .ed { margin-left: auto; color: var(--accent); font-weight: 600; }
 #fatal { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: var(--paper); z-index: 20; }
 
 #modal { position: fixed; inset: 0; background: rgba(10, 12, 16, 0.55); display: grid; place-items: center; padding: 16px; z-index: 30; }
@@ -174,6 +197,12 @@ button { cursor: pointer; }
   #floor-pal .sw { flex: none; max-width: 150px; }
   .card.new { min-height: 110px; }
 }
+@media (max-width: 430px) {
+  #hud { left: 8px; right: 8px; gap: 6px; }
+  .seg button { padding: 7px 8px; font-size: 12.5px; }
+  #net { margin: 0 2px 0 6px; }
+  .sb-ds { font-size: 11px; }
+}
 @media (prefers-reduced-motion: no-preference) { .card, .sw { transition: border-color 0.12s, background-color 0.12s; } }
 </style>
 </head>
@@ -202,6 +231,10 @@ button { cursor: pointer; }
         <p>Misure stimate dalle foto. Sostituiscile con quelle reali: il resto si adatta.</p>
         <div id="room-dims"></div>
         <label class="chk" for="rm-roof"><input type="checkbox" id="rm-roof" checked>Mostra tetto e travi</label>
+        <h3>Colore delle pareti</h3>
+        <div id="wall-cols"></div>
+        <p>Oppure un colore per tutte le pareti:</p>
+        <div id="wall-presets"></div>
         <h3>Finestre e portone</h3>
         <p>La parete A è quella del portone. B, C e D seguono in senso orario guardando dall'alto. Misure in metri.</p>
         <div id="room-ops"></div>
@@ -210,6 +243,8 @@ button { cursor: pointer; }
       <section class="pane" id="pane-list" hidden>
         <h3>Attrezzi</h3>
         <ul class="stat" id="list-items"></ul>
+        <h3 id="h-decor" hidden>Decorazioni</h3>
+        <ul class="stat" id="list-decor" hidden></ul>
         <h3>Pavimento</h3>
         <ul class="stat" id="list-floor"></ul>
         <p class="mono" id="list-tot"></p>
@@ -230,6 +265,7 @@ button { cursor: pointer; }
         <span id="net" role="img" aria-label="Stato della sincronizzazione" title="Collegamento in corso"></span>
         <button type="button" id="btn-undo" aria-label="Annulla" title="Annulla" disabled>↶</button>
         <button type="button" id="btn-redo" aria-label="Ripeti" title="Ripeti" disabled>↷</button>
+        <button type="button" id="btn-meas" aria-pressed="false" title="Misura una distanza sul pavimento">Metro</button>
         <button type="button" id="btn-menu" aria-haspopup="true" aria-expanded="false">Menu</button>
       </div>
     </div>
@@ -244,6 +280,7 @@ button { cursor: pointer; }
       <button type="button" data-m="help">Come si usa</button>
       <div id="sync">Collegamento alla sala in corso.</div>
     </div>
+    <div id="meas-label" class="mono" hidden></div>
     <div id="toast" role="status" hidden></div>
     <div id="selbar" hidden></div>
     <div id="veil" hidden>Apro la sala…</div>

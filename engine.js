@@ -237,6 +237,33 @@ layout(location=0) in vec3 aPos; uniform mat4 uLightVP, uModel;
 void main(){ gl_Position = uLightVP*uModel*vec4(aPos,1.0); }`;
 const FS_SH = `#version 300 es
 precision mediump float; void main(){}`;
+/* decorazioni: rettangoli con immagine (pareti e pavimento), con luce e ombre come il resto della sala */
+const VS_T = `#version 300 es
+layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNor; layout(location=2) in vec2 aUV;
+uniform mat4 uVP, uModel, uLightVP;
+out vec3 vN, vW; out vec2 vUV; out vec4 vL;
+void main(){ vec4 w = uModel*vec4(aPos,1.0); vW = w.xyz; vN = mat3(uModel)*aNor; vUV = aUV; vL = uLightVP*w; gl_Position = uVP*w; }`;
+const FS_T = `#version 300 es
+precision highp float; precision highp sampler2DShadow;
+uniform sampler2DShadow uShadow; uniform sampler2D uTex; uniform vec3 uEye, uLightDir; uniform float uShadowOn, uTexel, uAlpha;
+in vec3 vN, vW; in vec2 vUV; in vec4 vL; out vec4 o;
+float shadow(){
+  vec3 p = vL.xyz/vL.w*0.5+0.5;
+  if(p.x<0.0||p.x>1.0||p.y<0.0||p.y>1.0||p.z>1.0) return 1.0;
+  float s = 0.0;
+  for(int i=-1;i<=1;i++) for(int j=-1;j<=1;j++) s += texture(uShadow, vec3(p.xy+vec2(float(i),float(j))*uTexel*1.6, p.z-0.0015));
+  return s/9.0;
+}
+void main(){
+  vec4 t = texture(uTex, vUV);
+  if(t.a < 0.01) discard;
+  vec3 n = normalize(vN); if(!gl_FrontFacing) n = -n;
+  float ndl = max(dot(n,uLightDir),0.0);
+  float sh = uShadowOn>0.5 ? shadow() : 1.0;
+  vec3 amb = mix(vec3(0.70,0.69,0.67), vec3(0.88,0.89,0.91), n.y*0.5+0.5);
+  vec3 c = pow(t.rgb, vec3(2.2))*(amb + vec3(1.0,0.98,0.94)*0.46*ndl*sh);
+  o = vec4(pow(clamp(c,0.0,1.0), vec3(1.0/2.2)), t.a*uAlpha);
+}`;
 
 class Engine {
   constructor(canvas) {
@@ -246,6 +273,18 @@ class Engine {
     this.prog = this._program(VS, FS); this.progSh = this._program(VS_SH, FS_SH);
     this.u = {}; for (const n of ['uVP', 'uModel', 'uLightVP', 'uShadow', 'uEye', 'uLightDir', 'uTint', 'uShadowOn', 'uTexel']) this.u[n] = gl.getUniformLocation(this.prog, n);
     this.us = { uLightVP: gl.getUniformLocation(this.progSh, 'uLightVP'), uModel: gl.getUniformLocation(this.progSh, 'uModel') };
+    this.progT = this._program(VS_T, FS_T);
+    this.ut = {}; for (const n of ['uVP', 'uModel', 'uLightVP', 'uShadow', 'uTex', 'uEye', 'uLightDir', 'uShadowOn', 'uTexel', 'uAlpha']) this.ut[n] = gl.getUniformLocation(this.progT, n);
+    /* rettangolo unitario centrato, normale +Z, coordinate immagine (v=1 in alto) */
+    const q = new Float32Array([-0.5, -0.5, 0, 0, 0, 1, 0, 0, 0.5, -0.5, 0, 0, 0, 1, 1, 0, 0.5, 0.5, 0, 0, 0, 1, 1, 1,
+      -0.5, -0.5, 0, 0, 0, 1, 0, 0, 0.5, 0.5, 0, 0, 0, 1, 1, 1, -0.5, 0.5, 0, 0, 0, 1, 0, 1]);
+    this.quad = gl.createVertexArray(); const qb = gl.createBuffer();
+    gl.bindVertexArray(this.quad); gl.bindBuffer(gl.ARRAY_BUFFER, qb); gl.bufferData(gl.ARRAY_BUFFER, q, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12);
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
+    gl.bindVertexArray(null);
+    this.aniso = gl.getExtension('EXT_texture_filter_anisotropic');
     this.SM = 2048;
     this.shTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.shTex);
@@ -285,6 +324,20 @@ class Engine {
     gl.bindVertexArray(null);
     return { vao, vbo, n: mb.count };
   }
+  /* immagine o canvas → texture con mipmap */
+  texture(src) {
+    const gl = this.gl, t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    if (this.aniso) gl.texParameterf(gl.TEXTURE_2D, this.aniso.TEXTURE_MAX_ANISOTROPY_EXT, min(8, gl.getParameter(this.aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+    return t;
+  }
+  freeTex(t) { if (t) this.gl.deleteTexture(t); }
   free(m) { if (!m) return; this.gl.deleteVertexArray(m.vao); this.gl.deleteBuffer(m.vbo); }
   /* inquadra il volume della sala nella mappa delle ombre */
   setShadowBounds(mn, mx) {
@@ -298,7 +351,7 @@ class Engine {
     this.lightVP = M4.mul(M4.ortho(lo[0] - 0.2, hi[0] + 0.2, lo[1] - 0.2, hi[1] + 0.2, -hi[2] - 1, -lo[2] + 1), view);
   }
   /* draws: [{mesh, m, tint:[r,g,b,a]|null, cast}] */
-  render({ draws, view, proj, eye, clear, shadows }) {
+  render({ draws, view, proj, eye, clear, shadows, decals }) {
     const gl = this.gl;
     if (shadows) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.shFbo);
@@ -323,6 +376,24 @@ class Engine {
       gl.uniformMatrix4fv(this.u.uModel, false, d.m);
       const t = d.tint; gl.uniform4f(this.u.uTint, t ? t[0] : 0, t ? t[1] : 0, t ? t[2] : 0, t ? t[3] : 0);
       gl.bindVertexArray(d.mesh.vao); gl.drawArrays(gl.TRIANGLES, 0, d.mesh.n);
+    }
+    if (decals && decals.length) {
+      gl.useProgram(this.progT);
+      gl.uniformMatrix4fv(this.ut.uVP, false, M4.mul(proj, view));
+      gl.uniformMatrix4fv(this.ut.uLightVP, false, this.lightVP);
+      gl.uniform3fv(this.ut.uEye, eye); gl.uniform3fv(this.ut.uLightDir, this.lightDir);
+      gl.uniform1f(this.ut.uShadowOn, shadows ? 1 : 0); gl.uniform1f(this.ut.uTexel, 1 / this.SM);
+      gl.uniform1i(this.ut.uShadow, 0); gl.uniform1i(this.ut.uTex, 1);
+      gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-2, -4); gl.depthMask(false);
+      gl.bindVertexArray(this.quad); gl.activeTexture(gl.TEXTURE1);
+      for (const d of decals) {
+        gl.bindTexture(gl.TEXTURE_2D, d.tex);
+        gl.uniformMatrix4fv(this.ut.uModel, false, d.m); gl.uniform1f(this.ut.uAlpha, d.alpha == null ? 1 : d.alpha);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+      }
+      gl.depthMask(true); gl.disable(gl.POLYGON_OFFSET_FILL); gl.disable(gl.BLEND);
+      gl.activeTexture(gl.TEXTURE0);
     }
     gl.bindVertexArray(null);
   }
