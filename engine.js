@@ -419,6 +419,7 @@ class Engine {
     this.lightDir = V3.norm([0.22, 1, 0.3]);
     this.lightVP = new Float32Array(16); this.lightVP[0] = this.lightVP[5] = this.lightVP[10] = this.lightVP[15] = 1;
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+    this.initModels();
     /* trame dei materiali: array di texture, generato a pezzi dopo l'avvio per non bloccare la pagina */
     this.detail = gl.createTexture();
     this.detailSize = this.hq ? (opts.small ? 256 : 512) : 0;
@@ -517,8 +518,10 @@ class Engine {
       gl.viewport(0, 0, this.SM, this.SM); gl.clear(gl.DEPTH_BUFFER_BIT);
       gl.useProgram(this.progSh); gl.uniformMatrix4fv(this.us.uLightVP, false, this.lightVP);
       gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(2, 4);
-      for (const d of draws) if (d.cast && d.mesh.n) {
-        gl.uniformMatrix4fv(this.us.uModel, false, d.m); gl.bindVertexArray(d.mesh.vao); gl.drawArrays(gl.TRIANGLES, 0, d.mesh.n);
+      for (const d of draws) if (d.cast) {
+        gl.uniformMatrix4fv(this.us.uModel, false, d.m);
+        if (d.model) this._drawModel(d.model, true);
+        else if (d.mesh.n) { gl.bindVertexArray(d.mesh.vao); gl.drawArrays(gl.TRIANGLES, 0, d.mesh.n); }
       }
       gl.disable(gl.POLYGON_OFFSET_FILL);
     }
@@ -532,10 +535,22 @@ class Engine {
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.detail); gl.uniform1i(this.u.uDetail, 2);
     gl.uniform1f(this.u.uTexOn, this.texOn);
     gl.activeTexture(gl.TEXTURE0);
-    for (const d of draws) if (d.mesh.n) {
+    for (const d of draws) if (d.mesh && d.mesh.n) {
       gl.uniformMatrix4fv(this.u.uModel, false, d.m);
       const t = d.tint; gl.uniform4f(this.u.uTint, t ? t[0] : 0, t ? t[1] : 0, t ? t[2] : 0, t ? t[3] : 0);
       gl.bindVertexArray(d.mesh.vao); gl.drawArrays(gl.TRIANGLES, 0, d.mesh.n);
+    }
+    if (draws.some(d => d.model)) {
+      gl.useProgram(this.progP);
+      gl.uniformMatrix4fv(this.up.uVP, false, M4.mul(proj, view));
+      this._common(this.up, eye, shadows, room);
+      gl.uniform1i(this.up.uBase, 3); gl.uniform1i(this.up.uMR, 4); gl.uniform1i(this.up.uNorm, 5); gl.uniform1i(this.up.uOcc, 6);
+      for (const d of draws) if (d.model) {
+        gl.uniformMatrix4fv(this.up.uModel, false, d.m); gl.uniformMatrix3fv(this.up.uNM, false, normalMat(d.m));
+        const t = d.tint; gl.uniform4f(this.up.uTint, t ? t[0] : 0, t ? t[1] : 0, t ? t[2] : 0, t ? t[3] : 0);
+        this._drawModel(d.model, false);
+      }
+      gl.activeTexture(gl.TEXTURE0);
     }
     if (decals && decals.length) {
       gl.useProgram(this.progT);
@@ -556,3 +571,196 @@ class Engine {
     gl.bindVertexArray(null);
   }
 }
+
+/* ---- modelli GLB (glTF 2.0 binario): geometria, trasformazioni dei nodi e materiali PBR ---- */
+const VS_P = `#version 300 es
+layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNor; layout(location=2) in vec2 aUV;
+uniform mat4 uVP, uModel, uLightVP; uniform mat3 uNM;
+out vec3 vN, vW; out vec2 vUV; out vec4 vL;
+void main(){ vec4 w = uModel*vec4(aPos,1.0); vW = w.xyz; vN = uNM*aNor; vUV = aUV; vL = uLightVP*w; gl_Position = uVP*w; }`;
+const FS_P = `#version 300 es
+precision highp float; precision highp sampler2DShadow;
+uniform sampler2D uBase, uMR, uNorm, uOcc; uniform vec4 uBaseF, uTint; uniform vec3 uMRF; uniform float uHasNorm, uCut, uOccS;
+in vec3 vN, vW; in vec2 vUV; in vec4 vL; out vec4 o;
+${GLSL_COMMON}
+vec3 perturb(vec3 N, vec3 P, vec2 uv, vec3 tn){
+  vec3 dp1 = dFdx(P), dp2 = dFdy(P); vec2 du1 = dFdx(uv), du2 = dFdy(uv);
+  vec3 dp2p = cross(dp2, N), dp1p = cross(N, dp1);
+  vec3 T = dp2p*du1.x + dp1p*du2.x, B = dp2p*du1.y + dp1p*du2.y;
+  float inv = inversesqrt(max(dot(T,T), dot(B,B)) + 1e-12);
+  return normalize(mat3(T*inv, B*inv, N) * tn);
+}
+void main(){
+  vec4 bc = texture(uBase, vUV) * uBaseF;
+  if(bc.a < uCut) discard;
+  vec3 alb = bc.rgb;
+  vec4 mr = texture(uMR, vUV);
+  float rough = clamp(mr.g * uMRF.y, 0.05, 1.0), metal = clamp(mr.b * uMRF.x, 0.0, 1.0);
+  vec3 n = normalize(vN); if(!gl_FrontFacing) n = -n;
+  if(uHasNorm > 0.5){ vec3 tn = texture(uNorm, vUV).xyz*2.0-1.0; tn.xy *= uMRF.z; n = perturb(n, vW, vUV, normalize(tn)); }
+  vec3 V = normalize(uEye - vW), L = uLightDir, H = normalize(L + V);
+  float NdL = max(dot(n,L),0.0), NdV = max(dot(n,V),1e-3), NdH = max(dot(n,H),0.0), VdH = max(dot(V,H),0.0);
+  float sh = uShadowOn > 0.5 ? shadowF(vL, n) : 1.0;
+  float ao = roomAO(vW) * mix(1.0, texture(uOcc, vUV).r, uOccS);
+  float a = rough*rough, a2 = a*a, dd = NdH*NdH*(a2-1.0)+1.0, D = a2/(3.14159*dd*dd);
+  float k = (rough+1.0)*(rough+1.0)/8.0, G = NdL/(NdL*(1.0-k)+k) * NdV/(NdV*(1.0-k)+k);
+  vec3 F0 = mix(vec3(0.04), alb, metal), F = F0 + (1.0-F0)*pow(1.0-VdH, 5.0);
+  vec3 kd = (1.0-F)*(1.0-metal);
+  vec3 direct = (kd*alb/3.14159 + D*G*F/(4.0*NdL*NdV+1e-4)) * SUN * NdL * sh;
+  vec3 amb = mix(SKY_DN, SKY_UP, n.y*0.5+0.5);
+  vec3 R = reflect(-V, n), env = mix(SKY_DN, SKY_UP*1.15, clamp(R.y*0.5+0.5, 0.0, 1.0));
+  vec3 Fa = F0 + (max(vec3(1.0-rough), F0)-F0)*pow(1.0-NdV, 5.0);
+  vec3 c = direct + (kd*alb*amb*0.82 + Fa*env*(1.0-rough*0.75)*0.55) * ao;
+  c = mix(c, uTint.rgb*1.4, uTint.a);
+  o = vec4(pow(aces(c*uExposure), vec3(1.0/2.2)), 1.0);
+}`;
+
+function m4FromTRS(t, r, s) {
+  const [x, y, z, w] = r || [0, 0, 0, 1], [sx, sy, sz] = s || [1, 1, 1], [tx, ty, tz] = t || [0, 0, 0];
+  const xx = x * x, yy = y * y, zz = z * z, xy = x * y, xz = x * z, yz = y * z, wx = w * x, wy = w * y, wz = w * z;
+  return new Float32Array([
+    (1 - 2 * (yy + zz)) * sx, 2 * (xy + wz) * sx, 2 * (xz - wy) * sx, 0,
+    2 * (xy - wz) * sy, (1 - 2 * (xx + zz)) * sy, 2 * (yz + wx) * sy, 0,
+    2 * (xz + wy) * sz, 2 * (yz - wx) * sz, (1 - 2 * (xx + yy)) * sz, 0,
+    tx, ty, tz, 1]);
+}
+/* matrice normale (inversa trasposta della parte 3x3) */
+function normalMat(m) {
+  const a = m[0], b = m[1], c = m[2], d = m[4], e = m[5], f = m[6], g = m[8], h = m[9], i = m[10];
+  const A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g, det = a * A + b * B + c * C || 1e-12;
+  return new Float32Array([A / det, B / det, C / det, -(b * i - c * h) / det, (a * i - c * g) / det, -(a * h - b * g) / det,
+    (b * f - c * e) / det, -(a * f - c * d) / det, (a * e - b * d) / det]);
+}
+
+Engine.prototype.initModels = function () {
+  const gl = this.gl;
+  this.progP = this._program(VS_P, FS_P);
+  this.up = {};
+  for (const n of ['uVP', 'uModel', 'uNM', 'uLightVP', 'uBase', 'uMR', 'uNorm', 'uOcc', 'uOccS', 'uBaseF', 'uMRF', 'uHasNorm', 'uCut', 'uTint',
+    'uShadow', 'uEye', 'uLightDir', 'uRoom', 'uShadowOn', 'uTexel', 'uSoft', 'uExposure']) this.up[n] = gl.getUniformLocation(this.progP, n);
+  const px = (r, g, b, a) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([r, g, b, a])); return t; };
+  this.texWhite = px(255, 255, 255, 255); this.texFlat = px(128, 128, 255, 255);
+};
+
+/* legge un file GLB e prepara buffer e texture; restituisce {prims, min, max} in coordinate del modello */
+Engine.prototype.loadGLB = async function (buf) {
+  const gl = this.gl, dv = new DataView(buf);
+  if (dv.getUint32(0, true) !== 0x46546C67) throw new Error('Non è un file GLB');
+  let off = 12, json = null, bin = null;
+  while (off < buf.byteLength) {
+    const len = dv.getUint32(off, true), type = dv.getUint32(off + 4, true);
+    if (type === 0x4E4F534A) json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, off + 8, len)));
+    else if (type === 0x004E4942) bin = new Uint8Array(buf, off + 8, len);
+    off += 8 + len;
+  }
+  if (!json || !bin) throw new Error('GLB incompleto');
+  if ((json.extensionsRequired || []).length) throw new Error('Estensioni non supportate: ' + json.extensionsRequired.join(', '));
+  const view = i => { const bv = json.bufferViews[i]; return { data: bin, off: bv.byteOffset || 0, len: bv.byteLength, stride: bv.byteStride || 0 }; };
+  const COMP = { 5120: [Int8Array, 1], 5121: [Uint8Array, 1], 5122: [Int16Array, 2], 5123: [Uint16Array, 2], 5125: [Uint32Array, 4], 5126: [Float32Array, 4] };
+  const NC = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+  const acc = i => {
+    const a = json.accessors[i], v = view(a.bufferView), [T, bytes] = COMP[a.componentType], nc = NC[a.type];
+    const out = new Float32Array(a.count * nc), stride = v.stride || bytes * nc, base = v.off + (a.byteOffset || 0);
+    const d = new DataView(v.data.buffer, v.data.byteOffset);
+    const rd = { 5126: o => d.getFloat32(o, true), 5125: o => d.getUint32(o, true), 5123: o => d.getUint16(o, true), 5121: o => d.getUint8(o), 5122: o => d.getInt16(o, true), 5120: o => d.getInt8(o) }[a.componentType];
+    const norm = a.normalized ? { 5121: 255, 5123: 65535, 5120: 127, 5122: 32767 }[a.componentType] || 1 : 1;
+    for (let k = 0; k < a.count; k++) for (let c = 0; c < nc; c++) out[k * nc + c] = rd(base + k * stride + c * bytes) / norm;
+    return out;
+  };
+  // texture (immagini dentro il GLB), create una volta sola
+  const texCache = new Map();
+  const tex = async (ti, srgb) => {
+    if (ti == null) return null;
+    const key = ti + (srgb ? 's' : 'l');
+    if (texCache.has(key)) return texCache.get(key);
+    const p = (async () => {
+      const src = json.textures[ti].source, im = json.images[src], v = view(im.bufferView);
+      const bmp = await createImageBitmap(new Blob([v.data.slice(v.off, v.off + v.len)], { type: im.mimeType || 'image/png' }), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      if (this.aniso) gl.texParameterf(gl.TEXTURE_2D, this.aniso.TEXTURE_MAX_ANISOTROPY_EXT, min(8, gl.getParameter(this.aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+      if (bmp.close) bmp.close();
+      return t;
+    })();
+    texCache.set(key, p);
+    return p;
+  };
+  const prims = [], mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+  const walk = async (ni, parent) => {
+    const nd = json.nodes[ni];
+    const local = nd.matrix ? new Float32Array(nd.matrix) : m4FromTRS(nd.translation, nd.rotation, nd.scale);
+    const world = M4.mul(parent, local);
+    if (nd.mesh != null) for (const pr of json.meshes[nd.mesh].primitives) {
+      if (pr.mode != null && pr.mode !== 4) continue;
+      const P = acc(pr.attributes.POSITION), n = P.length / 3;
+      const N = pr.attributes.NORMAL != null ? acc(pr.attributes.NORMAL) : null, UV = pr.attributes.TEXCOORD_0 != null ? acc(pr.attributes.TEXCOORD_0) : null;
+      const I = pr.indices != null ? acc(pr.indices) : null;
+      const nm = normalMat(world);
+      const vb = new Float32Array(n * 8);
+      for (let k = 0; k < n; k++) {
+        const p = M4.tp(world, [P[k * 3], P[k * 3 + 1], P[k * 3 + 2]]);
+        for (let c = 0; c < 3; c++) { mn[c] = min(mn[c], p[c]); mx[c] = max(mx[c], p[c]); }
+        let nx = 0, ny = 1, nz = 0;
+        if (N) { const a = N[k * 3], b = N[k * 3 + 1], c = N[k * 3 + 2]; nx = nm[0] * a + nm[3] * b + nm[6] * c; ny = nm[1] * a + nm[4] * b + nm[7] * c; nz = nm[2] * a + nm[5] * b + nm[8] * c; const l = hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l; }
+        vb.set([p[0], p[1], p[2], nx, ny, nz, UV ? UV[k * 2] : 0, UV ? UV[k * 2 + 1] : 0], k * 8);
+      }
+      // senza normali: normali piatte per triangolo
+      let verts = vb, idx = I;
+      if (!N) {
+        const tri = I ? I.length : n, flat = new Float32Array(tri * 8);
+        for (let t = 0; t < tri; t += 3) {
+          const ids = [0, 1, 2].map(q => I ? I[t + q] : t + q), p = ids.map(j => [vb[j * 8], vb[j * 8 + 1], vb[j * 8 + 2]]);
+          const fn = V3.norm(V3.cross(V3.sub(p[1], p[0]), V3.sub(p[2], p[0])));
+          ids.forEach((j, q) => { flat.set(vb.subarray(j * 8, j * 8 + 8), (t + q) * 8); flat.set(fn, (t + q) * 8 + 3); });
+        }
+        verts = flat; idx = null;
+      }
+      const vao = gl.createVertexArray(), vbo = gl.createBuffer();
+      gl.bindVertexArray(vao); gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+      gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12);
+      gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
+      let count = verts.length / 8, ib = null, itype = 0;
+      if (idx) {
+        ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+        const big = count > 65535; gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, big ? new Uint32Array(idx) : new Uint16Array(idx), gl.STATIC_DRAW);
+        itype = big ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT; count = idx.length;
+      }
+      gl.bindVertexArray(null);
+      const ma = pr.material != null ? json.materials[pr.material] : {}, pb = ma.pbrMetallicRoughness || {};
+      prims.push({
+        vao, vbo, ib, itype, count,
+        baseF: pb.baseColorFactor || [1, 1, 1, 1], mrf: [pb.metallicFactor == null ? 1 : pb.metallicFactor, pb.roughnessFactor == null ? 1 : pb.roughnessFactor, ma.normalTexture ? (ma.normalTexture.scale || 1) : 1],
+        cut: ma.alphaMode === 'MASK' ? (ma.alphaCutoff == null ? 0.5 : ma.alphaCutoff) : (ma.alphaMode === 'BLEND' ? 0.5 : -1),
+        base: await tex(pb.baseColorTexture && pb.baseColorTexture.index, true),
+        mr: await tex(pb.metallicRoughnessTexture && pb.metallicRoughnessTexture.index, false),
+        norm: await tex(ma.normalTexture && ma.normalTexture.index, false),
+        occ: await tex(ma.occlusionTexture && ma.occlusionTexture.index, false), occS: ma.occlusionTexture ? (ma.occlusionTexture.strength == null ? 1 : ma.occlusionTexture.strength) : 0,
+      });
+    }
+    for (const c of nd.children || []) await walk(c, world);
+  };
+  const sc = json.scenes[json.scene || 0], I4 = M4.compose(0, 0, 0, 0);
+  for (const r of sc.nodes) await walk(r, I4);
+  return { prims, min: mn, max: mx };
+};
+
+Engine.prototype._drawModel = function (mdl, shadowPass) {
+  const gl = this.gl;
+  for (const p of mdl.prims) {
+    gl.bindVertexArray(p.vao);
+    if (!shadowPass) {
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, p.base || this.texWhite);
+      gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, p.mr || this.texWhite);
+      gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, p.norm || this.texFlat);
+      gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, p.occ || this.texWhite); gl.uniform1f(this.up.uOccS, p.occS);
+      gl.uniform4fv(this.up.uBaseF, p.baseF); gl.uniform3fv(this.up.uMRF, p.mrf); gl.uniform1f(this.up.uHasNorm, p.norm ? 1 : 0); gl.uniform1f(this.up.uCut, p.cut);
+    }
+    if (p.ib) gl.drawElements(gl.TRIANGLES, p.count, p.itype, 0); else gl.drawArrays(gl.TRIANGLES, 0, p.count);
+  }
+};

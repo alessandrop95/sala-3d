@@ -58,7 +58,7 @@ const CATALOG = [
     },
   },
   {
-    k: 'halfrack', name: 'Squat rack con bilanciere', cat: 'strutture', w: 2.2, d: 1.3, h: 2.3,
+    k: 'halfrack', name: 'Squat rack con bilanciere', cat: 'strutture', w: 2.2, d: 1.3, h: 2.3, model: 'models/rack.glb', modelYaw: Math.PI / 2,
     build(b) {
       const U = 0.08, w = 1.22, h = 2.3, x = w / 2 - U / 2;
       for (const sx of [-1, 1]) {
@@ -132,9 +132,9 @@ const CATALOG = [
       }
     },
   },
-  { k: 'kb8', name: 'Kettlebell 8 kg', cat: 'pesi', w: 0.19, d: 0.19, h: 0.22, build(b) { kettle(b, 0, 0, 0, 0.088, '#d24f8e'); } },
-  { k: 'kb16', name: 'Kettlebell 16 kg', cat: 'pesi', w: 0.22, d: 0.22, h: 0.27, build(b) { kettle(b, 0, 0, 0, 0.105, '#d9b02c'); } },
-  { k: 'kb24', name: 'Kettlebell 24 kg', cat: 'pesi', w: 0.25, d: 0.25, h: 0.3, build(b) { kettle(b, 0, 0, 0, 0.12, '#3d8f4d'); } },
+  { k: 'kb8', name: 'Kettlebell 8 kg', cat: 'pesi', w: 0.19, d: 0.19, h: 0.22, model: 'models/kettlebell.glb', build(b) { kettle(b, 0, 0, 0, 0.088, '#d24f8e'); } },
+  { k: 'kb16', name: 'Kettlebell 16 kg', cat: 'pesi', w: 0.22, d: 0.22, h: 0.27, model: 'models/kettlebell.glb', build(b) { kettle(b, 0, 0, 0, 0.105, '#d9b02c'); } },
+  { k: 'kb24', name: 'Kettlebell 24 kg', cat: 'pesi', w: 0.25, d: 0.25, h: 0.3, model: 'models/kettlebell.glb', build(b) { kettle(b, 0, 0, 0, 0.12, '#3d8f4d'); } },
   {
     k: 'kbrack', name: 'Rastrelliera kettlebell', cat: 'pesi', w: 1.4, d: 0.5, h: 0.95,
     build(b) {
@@ -265,7 +265,7 @@ const CATALOG = [
     },
   },
   {
-    k: 'sacco', name: 'Sacco da boxe appeso', cat: 'marziali', w: 0.36, d: 0.36, h: 1.5, hang: true, elev: 0.7, ropes: [[0, 0]], ropeR: 0.008, ropeCol: 'steel',
+    k: 'sacco', name: 'Sacco da boxe appeso', cat: 'marziali', w: 0.36, d: 0.36, h: 1.5, model: 'models/sacco.glb', modelBody: 1.34, modelFit: 'box', hang: true, elev: 0.7, ropes: [[0, 0]], ropeR: 0.008, ropeCol: 'steel',
     build(b) {
       b.cyl(0, 0.6, 0, 0.175, 1.2, '#8c1f1a', { seg: 20 });
       b.cyl(0, 0.05, 0, 0.176, 0.03, K, { seg: 20 }); b.cyl(0, 1.15, 0, 0.176, 0.03, K, { seg: 20 });

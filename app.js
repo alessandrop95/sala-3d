@@ -7,7 +7,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
   /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
-  const APP_VER = '2026-11-26d';
+  const APP_VER = '2026-11-26e';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
@@ -97,6 +97,37 @@
     for (const k of [...DEF.keys()]) if (DEF.get(k).custom) { DEF.delete(k); eng.free(meshes.get(k)); meshes.delete(k); thumbs.delete(k); }
     for (const c of S.custom) DEF.set(c.id, customDef(c));
   }
+  /* modelli 3D veri (GLB) per gli attrezzi che ne hanno uno: caricati alla prima occorrenza, solo in grafica realistica.
+     Il modello viene adattato all'altezza del catalogo; larghezza e profondità del catalogo diventano quelle reali del modello. */
+  const models = new Map();
+  function modelFor(k) {
+    const d = DEF.get(k);
+    if (!d || !d.model || gfx !== 'hq') return null;
+    let e = models.get(k);
+    if (!e) {
+      e = { state: 'loading', mdl: null, fit: null };
+      models.set(k, e);
+      fetch(d.model).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(buf => eng.loadGLB(buf)).then(mdl => {
+        const sx = mdl.max[0] - mdl.min[0], sy = mdl.max[1] - mdl.min[1], sz = mdl.max[2] - mdl.min[2];
+        // modelBody: altezza (in unità del modello) della parte che corrisponde all'attrezzo; sopra ci sono catene/ganci
+        const yaw = d.modelYaw || 0, swap = abs(sin(yaw)) > 0.5, body = d.modelBody || sy, s = d.h / (body || 1);
+        const cx = (mdl.min[0] + mdl.max[0]) / 2, cz = (mdl.min[2] + mdl.max[2]) / 2;
+        // modelFit 'box': larghezza e profondità del catalogo (scala diversa per asse); altrimenti proporzioni del modello
+        const fw = swap ? sz : sx, fd = swap ? sx : sz;
+        const kx = d.modelFit === 'box' ? d.w / (fw || 1) : s, kz = d.modelFit === 'box' ? d.d / (fd || 1) : s;
+        // centro sul pavimento, rotazione per far guardare il fronte verso +Z, scala all'altezza del catalogo
+        e.fit = M4.mul(M4.compose(0, 0, 0, 0, kx, s, kz), M4.mul(M4.compose(0, 0, 0, yaw), M4.compose(-cx, -mdl.min[1], -cz, 0)));
+        e.extraH = (sy - body) * s;
+        if (d.modelFit !== 'box') { d.w = round(fw * s * 100) / 100; d.d = round(fd * s * 100) / 100; }
+        e.mdl = mdl; e.state = 'ready';
+        for (const it of S.items) if (it.k === k) clampItem(it);
+        thumbs.delete(k); dirty = true; ovDirty = true; updateSelbar();
+        clearTimeout(modelCatT); modelCatT = setTimeout(renderCatalog, 300);
+      }).catch(err => { e.state = 'error'; console.warn('Modello non caricato: ' + d.model, err); });
+    }
+    return e.state === 'ready' ? e : null;
+  }
+  let modelCatT = 0;
   function getMesh(k) {
     let m = meshes.get(k);
     if (!m) { const b = new MB(); DEF.get(k).build(b); m = eng.mesh(b); meshes.set(k, m); }
@@ -599,14 +630,14 @@
           continue;
         }
         if (it.id !== S.sel) continue;
-      } else dr.push({
-        mesh: getMesh(it.k), m: M4.compose(it.x, y, it.z, it.rot), cast: true,
+      } else dr.push(Object.assign(itemDrawable(it.k, M4.compose(it.x, y, it.z, it.rot)), {
+        cast: true,
         tint: it.id === S.sel ? [accLin[0], accLin[1], accLin[2], 0.14] : ov.has(it.id) ? [0.85, 0.08, 0.05, 0.4] : null,
-      });
+      }));
       if (d.hang && d.ropes) {
         const c = cos(it.rot), s = sin(it.rot);
         for (const [lx, lz] of d.ropes) {
-          const x = it.x + c * lx + s * lz, z = it.z - s * lx + c * lz, y0 = y + d.h, len = roofH(z) - y0;
+          const md = modelFor(it.k), x = it.x + c * lx + s * lz, z = it.z - s * lx + c * lz, y0 = y + d.h + (md ? md.extraH : 0), len = roofH(z) - y0;
           if (len > 0.01) dr.push({ mesh: ROPE[d.ropeCol] || ROPE.steel, m: M4.compose(x, y0, z, 0, d.ropeR, len, d.ropeR), cast: true });
         }
       }
@@ -687,13 +718,17 @@
       el.style.transform = `translate(${sx.toFixed(1)}px,${sy.toFixed(1)}px) translate(-50%,-50%)`;
     }
   }
+  function itemDrawable(k, m) {
+    const md = modelFor(k);
+    return md ? { model: md.mdl, m: M4.mul(m, md.fit) } : { mesh: getMesh(k), m };
+  }
   function makeThumb(k) {
     const d = DEF.get(k), S0 = 168;
     canvas.width = S0; canvas.height = S0;
     const rad = 0.5 * hypot(d.w, d.h, d.d), fov = 0.5, dist = rad / sin(fov / 2) * 1.02;
     const yaw = 0.62, pitch = 0.36, cp = cos(pitch), tg = [0, d.h / 2, 0];
     const eye = [tg[0] + dist * cp * sin(yaw), tg[1] + dist * sin(pitch), tg[2] + dist * cp * cos(yaw)];
-    eng.render({ draws: [{ mesh: getMesh(k), m: IDENT }], view: M4.lookAt(eye, tg, [0, 1, 0]), proj: M4.persp(fov, 1, 0.05, 100), eye, clear: [0, 0, 0, 0], shadows: false });
+    eng.render({ draws: [itemDrawable(k, IDENT)], view: M4.lookAt(eye, tg, [0, 1, 0]), proj: M4.persp(fov, 1, 0.05, 100), eye, clear: [0, 0, 0, 0], shadows: false });
     thumbs.set(k, canvas.toDataURL('image/png'));
   }
   function ensureThumbs() {
@@ -1467,7 +1502,8 @@
       <li><b>Interno</b> Vedi la sala ad altezza occhi. Doppio tocco sul pavimento per spostarti.</li>
       <li><b>Insieme</b> Menu, Condividi: chi apre il link modifica questa stessa sala, senza account. Le modifiche arrivano in un paio di secondi.</li>
       <li><b>Tastiera</b> R ruota, D duplica, Canc elimina, Ctrl+Z annulla.</li>
-      <li><b>Sala</b> Correggi dimensioni, finestre e portone (quelle iniziali sono stimate dalle foto) e scegli il colore di ogni parete.</li></ul>
+      <li><b>Sala</b> Correggi dimensioni, finestre e portone (quelle iniziali sono stimate dalle foto) e scegli il colore di ogni parete.</li>
+      <li><b>Modelli 3D</b> Con la grafica realistica, squat rack, kettlebell e sacco usano modelli 3D veri. Crediti: “Squat Rack With Bar” di sousinho e “Boxing Bag - 3D Model” di carlaspalomo (licenza CC BY 4.0), “CC0 - Kettlebell” di plaggy (CC0), da Sketchfab.</li></ul>
       <div class="row"><button type="button" class="primary" data-close>Ho capito</button></div>`);
   }
   function exportFile() {

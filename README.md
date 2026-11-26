@@ -43,3 +43,7 @@ La tabella non è leggibile da fuori: si passa solo dalle due funzioni, quindi i
 Sito statico su GitHub Pages, senza passaggi di build: basta pubblicare la cartella così com'è.
 
 A ogni pubblicazione aggiorna la versione in tre punti uguali: `APP_VER` in `app.js`, `version.json` e i `?v=` degli script in `index.html`. Così le pagine rimaste aperte propongono di aggiornarsi e il browser non riusa i file vecchi.
+
+## Modelli 3D veri
+
+Alcuni attrezzi (squat rack, kettlebell, sacco) usano modelli GLB in `models/`, caricati solo con la grafica realistica; finché non sono pronti si vede la versione disegnata. Nel catalogo: `model` (percorso), `modelYaw` (rotazione per avere il fronte verso +Z), `modelBody` (altezza della parte che corrisponde all'attrezzo, il resto sopra sono catene) e `modelFit: 'box'` (adatta anche larghezza e profondità). Autori e licenze in `models/CREDITS.md`.
