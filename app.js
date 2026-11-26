@@ -1503,7 +1503,7 @@
       <li><b>Insieme</b> Menu, Condividi: chi apre il link modifica questa stessa sala, senza account. Le modifiche arrivano in un paio di secondi.</li>
       <li><b>Tastiera</b> R ruota, D duplica, Canc elimina, Ctrl+Z annulla.</li>
       <li><b>Sala</b> Correggi dimensioni, finestre e portone (quelle iniziali sono stimate dalle foto) e scegli il colore di ogni parete.</li>
-      <li><b>Modelli 3D</b> Con la grafica realistica, squat rack, kettlebell e sacco usano modelli 3D veri. Crediti: “Squat Rack With Bar” di sousinho e “Boxing Bag - 3D Model” di carlaspalomo , “CC0 - Kettlebell” di plaggy (CC BY 4.0), da Sketchfab.</li></ul>
+      <li><b>Modelli 3D</b> Con la grafica realistica, squat rack, kettlebell e sacco usano modelli 3D veri. Crediti: “Squat Rack With Bar” di sousinho, “Boxing Bag - 3D Model” di carlaspalomo e “CC0 - Kettlebell” di plaggy, da Sketchfab, licenza CC BY 4.0.</li></ul>
       <div class="row"><button type="button" class="primary" data-close>Ho capito</button></div>`);
   }
   function exportFile() {
