@@ -325,17 +325,10 @@ const CATALOG = [
     },
   },
   {
-    k: 'persona', name: 'Persona 175 cm (scala)', cat: 'arredo', w: 0.52, d: 0.3, h: 1.75,
-    build(b) {
-      const c = '#7f95ad';
-      for (const s of [-1, 1]) {
-        b.tube([s * 0.085, 0.03, 0], [s * 0.095, 0.92, 0], 0.062, c); b.sph(s * 0.085, 0.04, 0.045, 0.062, c, { s: [0.95, 0.6, 1.9] });
-        b.tube([s * 0.21, 1.42, 0], [s * 0.245, 0.86, 0.02], 0.04, c); b.sph(s * 0.21, 1.42, 0, 0.055, c);
-      }
-      b.sph(0, 1.18, 0, 0.18, c, { s: [0.98, 1.62, 0.6] }); b.sph(0, 0.95, 0, 0.16, c, { s: [1, 0.7, 0.68] });
-      b.cyl(0, 1.5, 0, 0.042, 0.1, c); b.sph(0, 1.63, 0, 0.1, c, { s: [0.92, 1.14, 1] });
-    },
+    k: 'persona', name: 'Karateka 175 cm (scala)', cat: 'arredo', w: 0.52, d: 0.3, h: 1.75,
+    build(b) { KARATEKA.buildStatic(b); },
   },
+
   /* ---------- stile giapponese ---------- */
   {
     k: 'kamidana', name: 'Kamidana (altarino)', cat: 'giappone', w: 0.9, d: 0.36, h: 0.55, wall: true, elev: 2.0,

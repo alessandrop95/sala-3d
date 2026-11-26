@@ -7,7 +7,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
   /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
-  const APP_VER = '2026-11-26j';
+  const APP_VER = '2026-11-26k';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
@@ -479,20 +479,30 @@
     ROPE.steel = mk('#a3a9af', { g: 0.8, seg: 8 }); ROPE.dark = mk('#2b2d31', { seg: 8 }); ROPE.rope = mk('#bfa67a', { seg: 8 });
     const b = new MB(); b.box(0, 0, 0, 1, 1, 1, ACCENT, { e: 1 }); R.outline = eng.mesh(b);
   }
+  // il karateka che si guida nella vista Interno: un pezzo per articolazione
+  const AV = {};
+  for (const k of Object.keys(KARATEKA.parts)) { const b = new MB(); KARATEKA.parts[k](b); AV[k] = eng.mesh(b); }
 
   /* ---------------- camera ---------------- */
   const FOV_O = 0.72, FOV_W = 1.2;
   function aspect() { return (canvas.clientWidth || 1) / (canvas.clientHeight || 1); }
+  /* Interno: la telecamera sta alle spalle del karateka (cam.walk = dove si trova lui) */
+  function walkDir() { const p = cam.wpitch - 0.16, cp = cos(p); return [sin(cam.wyaw) * cp, sin(p), -cos(cam.wyaw) * cp]; }
+  function walkAt() { const d = walkDir(); return [cam.walk[0] + d[0] * 1.8, 1.32 + d[1] * 1.8, cam.walk[2] + d[2] * 1.8]; }
   function camEye() {
-    if (S.view === 'walk') return cam.walk.slice();
+    if (S.view === 'walk') {
+      const d = walkDir(), D = 2.7, x = cam.walk[0] - d[0] * D, z = cam.walk[2] - d[2] * D;
+      const ex = clamp(x, 0.15, S.room.W - 0.15), ez = clamp(z, 0.15, S.room.D - 0.15);
+      return [ex, clamp(1.62 - d[1] * D, 0.35, roofH(ez) - 0.15), ez];
+    }
     const cp = cos(cam.pitch);
     return [cam.target[0] + cam.dist * cp * sin(cam.yaw), cam.target[1] + cam.dist * sin(cam.pitch), cam.target[2] + cam.dist * cp * cos(cam.yaw)];
   }
   function camMats() {
+    if (window.__salaCam) { const q = window.__salaCam; return { eye: q.eye, view: M4.lookAt(q.eye, q.at, [0, 1, 0]), proj: M4.persp(0.7, aspect(), 0.05, 200) }; }   // solo per le prove
     const eye = camEye();
     if (S.view === 'walk') {
-      const cp = cos(cam.wpitch), dir = [sin(cam.wyaw) * cp, sin(cam.wpitch), -cos(cam.wyaw) * cp];
-      return { eye, view: M4.lookAt(eye, V3.add(eye, dir), [0, 1, 0]), proj: M4.persp(FOV_W, aspect(), 0.05, 200) };
+      return { eye, view: M4.lookAt(eye, walkAt(), [0, 1, 0]), proj: M4.persp(FOV_W, aspect(), 0.05, 200) };
     }
     return { eye, view: M4.lookAt(eye, cam.target, [0, 1, 0]), proj: M4.persp(FOV_O, aspect(), 0.1, 400) };
   }
@@ -653,6 +663,10 @@
       }
     }
     for (const [id, e] of decalTex) if (!live.has(id)) { eng.freeTex(e.tex); decalTex.delete(id); }
+    if (walk) {
+      const root = M4.compose(cam.walk[0], 0, cam.walk[2], PI - cam.wyaw);
+      for (const [k, m] of KARATEKA.matrices(root, KARATEKA.pose(av.ph, av.w))) dr.push({ mesh: AV[k], m, cast: true });
+    }
     measDraws(dr);
     return dr;
   }
@@ -704,20 +718,39 @@
     }
   }
   /* camminare nella vista Interno: tastiera (WASD, frecce, Q/E) e pulsanti sullo schermo */
-  const walkIn = { keys: new Set(), pad: new Set(), t: 0 };
+  const walkIn = { keys: new Set(), pad: new Set(), t: 0, goal: null };
+  const av = { ph: 0, w: 0 };
   const WALK_KEYS = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'sl', KeyD: 'sr', ArrowLeft: 'l', ArrowRight: 'r', KeyQ: 'l', KeyE: 'r' };
-  function walkActive() { return S.view === 'walk' && (walkIn.keys.size || walkIn.pad.size); }
+  function walkActive() { return S.view === 'walk' && (walkIn.keys.size || walkIn.pad.size || walkIn.goal || av.w > 0.002); }
   function walkTick(now) {
+    if (window.__salaCam) return;   // prove: posa ferma
     const dt = min(0.12, walkIn.t ? (now - walkIn.t) / 1000 : 0); walkIn.t = now;
     if (!dt) return;
     const on = d => [...walkIn.keys].some(k => WALK_KEYS[k] === d) || walkIn.pad.has(d);
     const fast = walkIn.keys.has('ShiftLeft') || walkIn.keys.has('ShiftRight') ? 2 : 1;
-    const fwd = (on('f') ? 1 : 0) - (on('b') ? 1 : 0), side = (on('sr') ? 1 : 0) - (on('sl') ? 1 : 0), turn = (on('r') ? 1 : 0) - (on('l') ? 1 : 0);
-    anim = null; cam.auto = false;
+    let fwd = (on('f') ? 1 : 0) - (on('b') ? 1 : 0), side = (on('sr') ? 1 : 0) - (on('sl') ? 1 : 0), turn = (on('r') ? 1 : 0) - (on('l') ? 1 : 0);
+    if (fwd || side || turn) walkIn.goal = null;
+    else if (walkIn.goal) {   // doppio tocco: cammina fin lì girandosi verso il punto
+      const gx = walkIn.goal[0] - cam.walk[0], gz = walkIn.goal[1] - cam.walk[2], gd = hypot(gx, gz);
+      if (gd < 0.06) walkIn.goal = null;
+      else {
+        let da = atan2(gx, -gz) - cam.wyaw; da = ((da % (2 * PI)) + 3 * PI) % (2 * PI) - PI;
+        turn = clamp(da * 4, -1.4, 1.4);
+        fwd = abs(da) < 0.7 ? min(1, gd * 2.5) : 0;
+      }
+    }
+    if (fwd || side || turn || walkIn.keys.size || walkIn.pad.size) { anim = null; cam.auto = false; }
     cam.wyaw += turn * 1.7 * dt;
-    const sp = 1.7 * fast * dt, fx = sin(cam.wyaw), fz = -cos(cam.wyaw);
-    cam.walk[0] = clamp(cam.walk[0] + (fx * fwd - fz * side) * sp, 0.4, S.room.W - 0.4);
-    cam.walk[2] = clamp(cam.walk[2] + (fz * fwd + fx * side) * sp, 0.4, S.room.D - 0.4);
+    const sp = 1.45 * fast * dt, fx = sin(cam.wyaw), fz = -cos(cam.wyaw);
+    const x0 = cam.walk[0], z0 = cam.walk[2];
+    cam.walk[0] = clamp(x0 + (fx * fwd - fz * side) * sp, 0.4, S.room.W - 0.4);
+    cam.walk[2] = clamp(z0 + (fz * fwd + fx * side) * sp, 0.4, S.room.D - 0.4);
+    // passo del karateka: la fase avanza con la strada fatta (indietro va al contrario), un po' anche girandosi sul posto
+    const dist = hypot(cam.walk[0] - x0, cam.walk[2] - z0), dirS = fwd < 0 ? -1 : 1;
+    av.ph += dirS * dist / KARATEKA.STRIDE * 2 * PI + (dist < 1e-4 ? abs(turn) * dt * 3.2 : 0);
+    const target = dist > 1e-4 ? (fast > 1 ? 1.25 : 1) : abs(turn) > 0.05 ? 0.45 : 0;
+    av.w += (target - av.w) * min(1, dt * (target > av.w ? 7 : 5));
+    if (av.w < 0.002 && !target) av.w = 0;
     dirty = true;
   }
   function frame(now) {
@@ -1248,7 +1281,7 @@
       const now = performance.now();
       if (S.view === 'walk' && now - lastTap.t < 380 && hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
         const q = rayPlaneY(rayAt(e.clientX, e.clientY), 0.04);
-        if (q) { cam.walk[0] = clamp(q[0], 0.4, S.room.W - 0.4); cam.walk[2] = clamp(q[2], 0.4, S.room.D - 0.4); dirty = true; }
+        if (q) { walkIn.goal = [clamp(q[0], 0.4, S.room.W - 0.4), clamp(q[2], 0.4, S.room.D - 0.4)]; dirty = true; }
       } else select(act.look || null);
       lastTap = { t: now, x: e.clientX, y: e.clientY };
     }
@@ -1582,7 +1615,7 @@
       <li><b>Posizione esatta</b> Seleziona un oggetto e tocca la riga delle distanze per scrivere le misure precise.</li>
       <li><b>Metro</b> Tocca Metro in alto e poi due punti del pavimento per misurare una distanza.</li>
       <li><b>Pavimento</b> Scegli un materiale e tocca o trascina sulle piastrelle da 1×1 m. In Pianta è più comodo.</li>
-      <li><b>Interno</b> Vedi la sala ad altezza occhi. Dal computer cammini con W A S D o con le frecce (← → per girarti, Q ed E anche, Maiuscolo per andare più veloce). Dal telefono usa le frecce in basso a sinistra. Trascina per guardarti intorno; doppio tocco sul pavimento per andare in quel punto.</li>
+      <li><b>Interno</b> Guidi un karateka e lo segui alle sue spalle. Dal computer cammini con W A S D o con le frecce (← → per girarti, Q ed E anche, Maiuscolo per andare più veloce). Dal telefono usa le frecce in basso a sinistra. Trascina per guardarti intorno; doppio tocco sul pavimento e ci va camminando.</li>
       <li><b>Insieme</b> Menu, Condividi: chi apre il link modifica questa stessa sala, senza account. Le modifiche arrivano in un paio di secondi.</li>
       <li><b>Tastiera</b> In modifica: R ruota, D duplica, Canc elimina, Ctrl+Z annulla.</li>
       <li><b>Sala</b> Correggi dimensioni, finestre e portone (quelle iniziali sono stimate dalle foto) e scegli il colore di ogni parete.</li>
@@ -1674,5 +1707,5 @@
     document.addEventListener('visibilitychange', () => { if (!document.hidden) checkVersion(); });
     if (CFG.refresh) fetch(CFG.refresh, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => { if (j && j.url && j.anon && (j.url !== CFG.url || j.anon !== CFG.anon)) { CFG.url = j.url; CFG.anon = j.anon; net.next = 0; } }).catch(() => { });
   }
-  window.__sala = { S, cam, net, setView, setTab, addItem, select, draw, snapshot, px(x, y, z) { const q = M4.tp(getVP(), [x, y, z]), rc = canvas.getBoundingClientRect(); return [rc.left + (q[0] * 0.5 + 0.5) * rc.width, rc.top + (0.5 - q[1] * 0.5) * rc.height]; } };
+  window.__sala = { S, cam, net, av, setView, setTab, addItem, select, draw, snapshot, px(x, y, z) { const q = M4.tp(getVP(), [x, y, z]), rc = canvas.getBoundingClientRect(); return [rc.left + (q[0] * 0.5 + 0.5) * rc.width, rc.top + (0.5 - q[1] * 0.5) * rc.height]; } };
 })();

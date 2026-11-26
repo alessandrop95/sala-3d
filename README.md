@@ -51,3 +51,7 @@ Alcuni attrezzi (squat rack, kettlebell, sacco) usano modelli GLB in `models/`, 
 ## Guardare o modificare
 
 All'apertura la sala si può solo guardare (girare, zoomare, misurare, toccare un oggetto per vederne nome e misure). Il pulsante **Modifica** in alto abilita spostamenti, aggiunte, pavimento e misure della sala; **Fine** torna a guardare. La modalità vale solo sul dispositivo e non viene salvata: ogni volta si riparte da Guardare.
+
+## Vista Interno
+
+Nella vista Interno si guida un karateka (karategi bianco, cintura nera) visto alle spalle: W A S D o frecce per camminare (← → / Q E per girarsi, Maiuscolo per correre), pulsanti a schermo sui dispositivi touch, doppio tocco sul pavimento per farlo camminare fin lì. La figura è in `karateka.js`: parti articolate (bacino, busto, testa, braccia, gambe, piedi) e una camminata calcolata dalla fase del passo. La stessa figura, ferma, è l'attrezzo "Karateka 175 cm (scala)".
