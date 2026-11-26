@@ -38,9 +38,39 @@ function digit(b, x, y, z, n, s) {
   for (const k in segs) { const [dx, dy, w, h] = segs[k]; b.box(x + dx, y + dy, z, w, h, 0.004, on.includes(k) ? '#ff3b2f' : '#3a1210', { e: on.includes(k) ? 1 : 0 }); }
 }
 
-const CATS = [['decor', 'Decorazioni'], ['giappone', 'Stile giapponese'], ['strutture', 'Strutture'], ['pesi', 'Pesi liberi'], ['funzionale', 'Funzionale'], ['cardio', 'Cardio'], ['marziali', 'Arti marziali'], ['arredo', 'Arredo e servizi'], ['miei', 'I miei attrezzi']];
+const CATS = [['decor', 'Decorazioni'], ['giappone', 'Stile giapponese'], ['strutture', 'Strutture'], ['pesi', 'Pesi liberi'], ['funzionale', 'Funzionale'], ['cardio', 'Cardio'], ['marziali', 'Arti marziali'], ['arredo', 'Arredo e servizi'], ['luci', 'Luci LED'], ['miei', 'I miei attrezzi']];
 
+const WARM = [1.0, 0.66, 0.36], AMBER = [1.0, 0.5, 0.24];
 const CATALOG = [
+  {
+    k: 'ledstrip', name: 'Striscia LED calda 2 m (a parete)', cat: 'luci', w: 2.0, d: 0.04, h: 0.03, wall: true, elev: 2.6,
+    light: () => [-0.5, 0.5].map(x => [x, 0.12, 0.18, WARM[0] * 2.0, WARM[1] * 2.0, WARM[2] * 2.0, 5]),
+    build(b) {
+      b.box(0, 0, -0.005, 2.0, 0.03, 0.03, '#2b2b2b', { g: 0.4, m: MAT.METAL });
+      b.box(0, 0.012, 0.004, 1.98, 0.008, 0.022, '#ffc47a', { e: 1 });
+    },
+  },
+  {
+    k: 'chochin', name: 'Lanterna chōchin appesa', cat: 'luci', w: 0.34, d: 0.34, h: 0.56, hang: true, elev: 2.3, ropes: [[0, 0]], ropeR: 0.004, ropeCol: 'dark',
+    light: () => [[0, 0.28, 0, AMBER[0] * 1.2, AMBER[1] * 1.2, AMBER[2] * 1.2, 5]],
+    build(b) {
+      b.sph(0, 0.28, 0, 0.17, '#c6402c', { s: [1, 1.42, 1], e: 0.85, seg: 20 });
+      for (let i = 1; i < 9; i++) { const y = 0.28 + (i / 9 - 0.5) * 0.46, r = 0.17 * Math.sqrt(1 - Math.pow((y - 0.28) / 0.245, 2)) + 0.002; b.tor(0, y, 0, r, 0.003, '#3a1a12', { seg: 24 }); }
+      b.cyl(0, 0.53, 0, 0.09, 0.05, '#151515', { g: 0.3 }); b.cyl(0, 0.03, 0, 0.09, 0.05, '#151515', { g: 0.3 });
+      b.box(0, 0.28, 0.172, 0.05, 0.14, 0.004, '#151515', {});
+    },
+  },
+  {
+    k: 'applique', name: 'Applique andon a muro', cat: 'luci', w: 0.24, d: 0.14, h: 0.4, wall: true, elev: 1.9,
+    light: () => [[0, 0.2, 0.22, WARM[0] * 0.8, WARM[1] * 0.8, WARM[2] * 0.8, 4]],
+    build(b) {
+      b.box(0, 0.2, -0.06, 0.24, 0.4, 0.02, '#2a1c12', {});
+      b.box(0, 0.2, 0.01, 0.2, 0.34, 0.12, '#f3e2bd', { e: 0.9 });
+      for (const sx of [-1, 1]) b.box(sx * 0.1, 0.2, 0.01, 0.018, 0.38, 0.13, '#2a1c12', {});
+      for (const y of [0.02, 0.38]) b.box(0, y, 0.01, 0.22, 0.02, 0.13, '#2a1c12', {});
+      for (const y of [0.13, 0.27]) b.box(0, y, 0.072, 0.2, 0.008, 0.004, '#2a1c12', {});
+    },
+  },
   {
     k: 'rack', name: 'Power rack con bilanciere', cat: 'strutture', w: 2.2, d: 1.45, h: 2.3,
     build(b) {
@@ -397,6 +427,7 @@ const CATALOG = [
   },
   {
     k: 'andon', name: 'Lanterna andon', cat: 'giappone', w: 0.34, d: 0.34, h: 0.85, model: 'models/andon.glb',
+    light: () => [[0, 0.5, 0, WARM[0] * 0.9, WARM[1] * 0.9, WARM[2] * 0.9, 4.5]],
     build(b) {
       b.box(0, 0.05, 0, 0.34, 0.06, 0.34, WDK);
       b.box(0, 0.5, 0, 0.28, 0.66, 0.28, '#f6e4bb', { e: 0.9 });

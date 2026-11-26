@@ -192,13 +192,18 @@ button.sb-ds:hover { border-color: var(--muted); }
 @media (pointer: coarse) { body.view-walk #selbar { left: calc(12px + 3 * 52px + 12px + 6px); } }
 @media (pointer: coarse) and (max-width: 520px) { body.view-walk #selbar { left: 12px; } }
 
+/* giorno / sera */
+#btn-light { position: absolute; left: 0; top: 46px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 12px; font-weight: 600; font-size: 12.5px; color: var(--ink); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12); }
+body.night #btn-light { background: #1d2333; color: #f3d9a4; border-color: #39415a; }
+#btn-light span { font-size: 14px; }
+
 /* guardare / modificare */
 .seg #btn-edit { color: var(--accent); }
 .seg #btn-edit[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 body:not(.editing) #btn-undo, body:not(.editing) #btn-redo { display: none; }
 body:not(.editing) #pane-list .x { visibility: hidden; }
 body:not(.editing) #cat-grid .card, body:not(.editing) #floor-pal, body:not(.editing) #btn-fill, body:not(.editing) #room-dims,
-body:not(.editing) #wall-cols, body:not(.editing) #wall-presets, body:not(.editing) #room-ops, body:not(.editing) #room-add { opacity: 0.55; }
+body:not(.editing) #wall-cols, body:not(.editing) #wall-presets, body:not(.editing) #room-ops, body:not(.editing) #room-add, body:not(.editing) #cur-pat { opacity: 0.55; }
 .view-note { display: none; margin: 0; padding: 8px 10px; border-radius: 9px; background: var(--chip); font-size: 12.5px; color: var(--ink); }
 body:not(.editing) .view-note { display: block; }
 .sb-view { font-size: 12.5px; color: var(--muted); }
@@ -271,6 +276,7 @@ body:not(.editing) .view-note { display: block; }
         <h3>Finestre e portone</h3>
         <p>La parete A è quella del portone. B, C e D seguono in senso orario guardando dall'alto. Misure in metri.</p>
         <div id="room-ops"></div>
+        <div id="cur-pat"></div>
         <div class="row" id="room-add"><button type="button" id="btn-curall">Tende nere a tutte le finestre</button><button type="button" id="btn-addwin">Aggiungi finestra</button><button type="button" id="btn-adddoor">Aggiungi porta</button></div>
       </section>
       <section class="pane" id="pane-list" hidden>
@@ -295,6 +301,7 @@ body:not(.editing) .view-note { display: block; }
         <button type="button" data-view="plan" aria-pressed="false">Pianta</button>
         <button type="button" data-view="walk" aria-pressed="false">Interno</button>
       </div>
+      <button type="button" id="btn-light" class="pill">Giorno</button>
       <div class="seg">
         <span id="net" role="img" aria-label="Stato della sincronizzazione" title="Collegamento in corso"></span>
         <button type="button" id="btn-undo" aria-label="Annulla" title="Annulla" disabled>↶</button>
@@ -335,10 +342,10 @@ body:not(.editing) .view-note { display: block; }
 </div>
 <div id="modal" hidden><div id="modal-body" role="dialog" aria-modal="true"></div></div>
 <input type="file" id="file" accept=".json,application/json" hidden>
-<script src="config.js?v=2026-11-26m"></script>
-<script src="engine.js?v=2026-11-26m"></script>
-<script src="karateka.js?v=2026-11-26m"></script>
-<script src="catalog.js?v=2026-11-26m"></script>
-<script src="app.js?v=2026-11-26m"></script>
+<script src="config.js?v=2026-11-26o"></script>
+<script src="engine.js?v=2026-11-26o"></script>
+<script src="karateka.js?v=2026-11-26o"></script>
+<script src="catalog.js?v=2026-11-26o"></script>
+<script src="app.js?v=2026-11-26o"></script>
 </body>
 </html>

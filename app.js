@@ -7,7 +7,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
   /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
-  const APP_VER = '2026-11-26m';
+  const APP_VER = '2026-11-26o';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
@@ -138,6 +138,7 @@
   function snapshot() {
     return JSON.stringify({ v: 1, room: S.room, nx: S.nx, nz: S.nz, cells: S.cells, items: S.extra.length ? S.items.concat(S.extra) : S.items, custom: S.custom });
   }
+  const CUR_PATS = [['seigaiha', 'Seigaiha, onde (oro)'], ['asanoha', 'Asanoha, foglie di canapa (oro)'], ['sakura', 'Sakura, fiori di ciliegio'], ['tinta', 'Nera, senza fantasia']];
   function sanitizeRoom(r) {
     const o = {
       W: clamp(+r.W || 10, 3, 40), D: clamp(+r.D || 12, 3, 40), hLow: clamp(+r.hLow || 3, 2.2, 12), hHigh: clamp(+r.hHigh || 3, 2.2, 15), openings: [],
@@ -154,6 +155,7 @@
       o.openings.push(op);
     }
     S.room = prev;
+    o.curPat = CUR_PATS.some(p => p[0] === r.curPat) ? r.curPat : 'seigaiha';
     o.cols = {};
     if (r.cols && typeof r.cols === 'object') for (const k of WALL_KEYS) if (/^#[0-9a-f]{6}$/i.test(r.cols[k])) o.cols[k] = r.cols[k].toLowerCase();
     return o;
@@ -441,7 +443,61 @@
   /* ---------------- tende nere alle finestre ----------------
      Due teli plissettati appesi a un bastone sopra la finestra, lunghi fino al davanzale.
      cl = 1 chiusa (i teli si incontrano al centro), 0 aperta (raccolti ai lati). */
-  const curt = new Map();   // indice apertura -> { key, mesh, disp }
+  const curt = new Map();   // indice apertura -> { key, mesh, model, disp }
+  /* fantasie giapponesi per la stoffa: disegnate su canvas, ripetibili; tw/th = misura reale del riquadro (m) */
+  const patTex = new Map();
+  function patternOf(name) {
+    if (patTex.has(name)) return patTex.get(name);
+    const BG = '#131313', GOLD = '#a8894f';
+    const cv = document.createElement('canvas'); let tw = 0.3, th = 0.3;
+    const x = cv.getContext('2d');
+    if (name === 'asanoha') {
+      const sd = 128, h = sd * Math.sqrt(3) / 2; cv.width = 512; cv.height = round(4 * h); tw = 0.75; th = tw * cv.height / cv.width;
+      x.fillStyle = BG; x.fillRect(0, 0, cv.width, cv.height); x.strokeStyle = GOLD; x.lineCap = 'round';
+      const V = (i, j) => [i * sd + ((j % 2 + 2) % 2) * sd / 2, j * h];
+      for (let j = -1; j <= 4; j++) for (let i = -1; i <= 5; i++) {
+        for (const tri of [[V(i, j), V(i + 1, j), j % 2 ? V(i + 1, j + 1) : V(i, j + 1)], [V(i + 1, j), j % 2 ? V(i + 1, j + 1) : V(i, j + 1), j % 2 ? V(i + 2, j + 1) : V(i + 1, j + 1)]]) {
+          const g = [(tri[0][0] + tri[1][0] + tri[2][0]) / 3, (tri[0][1] + tri[1][1] + tri[2][1]) / 3];
+          x.lineWidth = 3.2; x.beginPath(); for (const p of tri) { x.moveTo(p[0], p[1]); x.lineTo(g[0], g[1]); } x.stroke();
+          x.lineWidth = 2.2; x.beginPath(); x.moveTo(tri[0][0], tri[0][1]); x.lineTo(tri[1][0], tri[1][1]); x.lineTo(tri[2][0], tri[2][1]); x.closePath(); x.stroke();
+        }
+      }
+    } else if (name === 'sakura') {
+      cv.width = cv.height = 512; tw = th = 0.9;
+      x.fillStyle = BG; x.fillRect(0, 0, 512, 512);
+      let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      const flower = (cx, cy, r, a) => {
+        for (let k = 0; k < 5; k++) {
+          const ang = a + k * 2 * PI / 5;
+          x.save(); x.translate(cx + Math.cos(ang) * r * 0.5, cy + Math.sin(ang) * r * 0.5); x.rotate(ang);
+          x.fillStyle = '#e3aab2'; x.beginPath(); x.ellipse(0, 0, r * 0.52, r * 0.36, 0, 0, 2 * PI); x.fill();
+          x.fillStyle = BG; x.beginPath(); x.moveTo(r * 0.56, 0); x.lineTo(r * 0.36, -r * 0.08); x.lineTo(r * 0.36, r * 0.08); x.fill();   // tacca del petalo
+          x.restore();
+        }
+        x.fillStyle = '#b0505f'; x.beginPath(); x.arc(cx, cy, r * 0.2, 0, 2 * PI); x.fill();
+        x.fillStyle = '#e9c46a'; for (let k = 0; k < 5; k++) { const ang = a + (k + 0.5) * 2 * PI / 5; x.beginPath(); x.arc(cx + Math.cos(ang) * r * 0.3, cy + Math.sin(ang) * r * 0.3, r * 0.05, 0, 2 * PI); x.fill(); }
+      };
+      const fl = []; for (let k = 0; k < 9; k++) fl.push([rnd() * 512, rnd() * 512, 26 + rnd() * 26, rnd() * 2 * PI]);
+      const pe = []; for (let k = 0; k < 10; k++) pe.push([rnd() * 512, rnd() * 512, 7 + rnd() * 6, rnd() * 2 * PI]);
+      for (const dx of [-512, 0, 512]) for (const dy of [-512, 0, 512]) {
+        for (const [px, py, r, a] of pe) { x.save(); x.translate(px + dx, py + dy); x.rotate(a); x.fillStyle = '#c98f98'; x.beginPath(); x.ellipse(0, 0, r, r * 0.6, 0, 0, 2 * PI); x.fill(); x.restore(); }
+        for (const [px, py, r, a] of fl) flower(px + dx, py + dy, r, a);
+      }
+    } else if (name === 'seigaiha') {
+      cv.width = cv.height = 512; tw = th = 0.6;
+      x.fillStyle = BG; x.fillRect(0, 0, 512, 512);
+      const R = 128;
+      for (let j = -2; j <= 10; j++) for (let i = -1; i <= 3; i++) {
+        const cx = i * 2 * R + ((j % 2 + 2) % 2) * R, cy = j * R / 2;
+        x.fillStyle = BG; x.beginPath(); x.arc(cx, cy, R, PI, 2 * PI); x.lineTo(cx + R, cy + 2); x.lineTo(cx - R, cy + 2); x.fill();
+        x.strokeStyle = GOLD;
+        for (let k = 1; k <= 4; k++) { x.lineWidth = k === 4 ? 5 : 4; x.beginPath(); x.arc(cx, cy, R * (k / 4) - 3, PI, 2 * PI); x.stroke(); }
+      }
+    } else { cv.width = cv.height = 8; x.fillStyle = BG; x.fillRect(0, 0, 8, 8); }
+    const e = { tex: eng.repeatTexture(cv), tw, th };
+    patTex.set(name, e);
+    return e;
+  }
   const CUR_Z = 0.1, CUR_COL = '#121212';
   function buildCurtain(wk, o, c) {
     const wi = wallInfo(wk), b = new MB();
@@ -452,9 +508,10 @@
     for (const x of [x0 - 0.05, x1 + 0.05]) b.sph(x, top + 0.07, CUR_Z, 0.025, '#1b1b1b', { g: 0.5, m: MAT.METAL });
     for (const x of [x0 + 0.04, x1 - 0.04]) b.box(x, top + 0.07, CUR_Z / 2, 0.02, 0.03, CUR_Z, '#1b1b1b', { g: 0.4, m: MAT.METAL });
     const half = mid - x0 + 0.03, fabric = half * 1.6, stack = max(0.12, fabric * 0.11);
-    const yb = o.sill + 0.01, yt = top + 0.045;
+    const yb = o.sill + 0.01, yt = top + 0.045, pat = patternOf(S.room.curPat || 'seigaiha'), V = [];
+    // vertice della stoffa in coordinate del mondo (x lungo la parete, z verso la sala) con UV sulla stoffa "stesa"
+    const W3 = (lx, ly, lz, nx, nz, u, v) => V.push(wi.o[0] + wi.dir[0] * lx + wi.n[0] * lz, ly, wi.o[2] + wi.dir[2] * lx + wi.n[2] * lz, wi.dir[0] * nx + wi.n[0] * nz, 0, wi.dir[2] * nx + wi.n[2] * nz, u, v);
     for (const side of [-1, 1]) {
-      b._mat(CUR_COL, { m: MAT.PAPER }); b._euler([0, 0, 0], null);   // (gli anelli del telo precedente cambiano materiale e posizione)
       const a = side < 0 ? x0 : x1;                                // bordo fisso, vicino al bastone
       const span = stack + (half - stack) * c, xa = a, xb = a - side * span;
       const n = max(3, round(fabric / 0.12)), K = n * 8;
@@ -466,30 +523,30 @@
         // normale della piega (nel piano x-z della parete), verso la sala
         const nrm = (dz) => { const nx = -dz * side, nz = 1, l = Math.hypot(nx, nz); return [nx / l, 0, nz / l]; };
         const np = nrm(p[2]), nq = nrm(q[2]);
-        const tri = (A1, A2, A3) => { for (const [v, nn] of [A1, A2, A3]) b._v(v[0], v[1], v[2], nn[0], nn[1], nn[2]); };
-        const pb = [p[0], yb, p[1]], pt = [p[0], yt, p[1]], qb = [q[0], yb, q[1]], qt = [q[0], yt, q[1]];
-        const inv = v => [-v[0], 0, -v[2]];
-        if (side < 0) { tri([pb, np], [qb, nq], [qt, nq]); tri([pb, np], [qt, nq], [pt, np]); tri([pb, inv(np)], [qt, inv(nq)], [qb, inv(nq)]); tri([pb, inv(np)], [pt, inv(np)], [qt, inv(nq)]); }
-        else { tri([pb, np], [qt, nq], [qb, nq]); tri([pb, np], [pt, np], [qt, nq]); tri([pb, inv(np)], [qb, inv(nq)], [qt, inv(nq)]); tri([pb, inv(np)], [qt, inv(nq)], [pt, inv(np)]); }
+        // u: posizione sulla stoffa stesa (così la fantasia si piega con le pieghe); v: dall'alto
+        const up = (side < 0 ? k : K - k) / K * fabric / pat.tw, uq = (side < 0 ? k + 1 : K - k - 1) / K * fabric / pat.tw;
+        const vb = (yt - yb) / pat.th;
+        const P1 = [p[0], yb, p[1], np, up, vb], P2 = [q[0], yb, q[1], nq, uq, vb], P3 = [q[0], yt, q[1], nq, uq, 0], P4 = [p[0], yt, p[1], np, up, 0];
+        for (const v of [P1, P2, P3, P1, P3, P4]) W3(v[0], v[1], v[2], v[3][0], v[3][2], v[4], v[5]);
       }
       // anelli sul bastone
       const nr = max(3, round(span / 0.1));
       for (let i = 0; i <= nr; i++) b.tor(xa - side * span * i / nr, top + 0.07, CUR_Z, 0.022, 0.004, '#1b1b1b', { r: [0, 0, PI / 2], g: 0.5, m: MAT.METAL, seg: 10 });
     }
     b.frame(null);
-    return eng.mesh(b);
+    return { mesh: eng.mesh(b), model: eng.texturedModel(new Float32Array(V), pat.tex, 0.82) };
   }
   function curtainDraws(dr, shown) {
     const live = new Set();
     S.room.openings.forEach((o, i) => {
       if (o.t !== 'win' || !o.cur || !shown[o.wall]) return;
       let e = curt.get(i);
-      if (!e) { e = { key: '', mesh: null, disp: o.cl }; curt.set(i, e); }
-      const key = [o.wall, o.u, o.w, o.sill, o.h, e.disp.toFixed(3)].join();
-      if (key !== e.key) { if (e.mesh) eng.free(e.mesh); e.mesh = buildCurtain(o.wall, o, e.disp); e.key = key; }
-      live.add(i); dr.push({ mesh: e.mesh, m: IDENT, cast: true });
+      if (!e) { e = { key: '', mesh: null, model: null, disp: o.cl }; curt.set(i, e); }
+      const key = [o.wall, o.u, o.w, o.sill, o.h, S.room.curPat, e.disp.toFixed(3)].join();
+      if (key !== e.key) { eng.free(e.mesh); eng.freeModel(e.model); Object.assign(e, buildCurtain(o.wall, o, e.disp)); e.key = key; }
+      live.add(i); dr.push({ mesh: e.mesh, m: IDENT, cast: true }, { model: e.model, m: IDENT, cast: true });
     });
-    for (const [i, e] of curt) if (!live.has(i) && !(S.room.openings[i] && S.room.openings[i].cur)) { if (e.mesh) eng.free(e.mesh); curt.delete(i); }
+    for (const [i, e] of curt) if (!live.has(i) && !(S.room.openings[i] && S.room.openings[i].cur)) { eng.free(e.mesh); eng.freeModel(e.model); curt.delete(i); }
   }
   function curtainsMoving() {
     let mv = false;
@@ -700,12 +757,41 @@
   const IDENT = M4.compose(0, 0, 0, 0);
   const accLin = colLin(ACCENT);
   let clearCol = [0.87, 0.89, 0.91, 1];
+  /* giorno o sera: di sera il sole è spento, i vetri sono scuri e fanno luce LED e lanterne */
+  let lightMode = 'day';
+  try { lightMode = localStorage.getItem('sala3d.light') === 'night' ? 'night' : 'day'; } catch (_) { }
+  const NIGHT_BG = [0.035, 0.045, 0.075, 1];
+  function setLightMode(m) {
+    lightMode = m; try { localStorage.setItem('sala3d.light', m); } catch (_) { }
+    document.body.classList.toggle('night', m === 'night');
+    const b = $('#btn-light'); b.innerHTML = m === 'night' ? '<span aria-hidden="true">☾</span> Sera' : '<span aria-hidden="true">☀</span> Giorno';
+    b.setAttribute('aria-label', m === 'night' ? 'Vista di sera: tocca per il giorno' : 'Vista di giorno: tocca per la sera');
+    dirty = true;
+  }
   function readTheme() {
     const m = /rgba?\((\d+)[, ]+(\d+)[, ]+(\d+)/.exec(getComputedStyle(stage).backgroundColor || '');
     if (m) clearCol = [m[1] / 255, m[2] / 255, m[3] / 255, 1];
     dirty = true;
   }
   const decals = [];
+  const sceneLights = [];
+  /* al massimo 16 luci per lo shader: le più vicine tra loro si fondono in una (stessa energia, nessun salto muovendo la vista) */
+  let mergedKey = '', merged = [];
+  function mergedLights() {
+    const key = sceneLights.map(l => l.p.map(v => v.toFixed(2)).join() + l.c.map(v => v.toFixed(2)).join()).join('|');
+    if (key === mergedKey) return merged;
+    let ls = sceneLights.map(l => ({ p: l.p.slice(), c: l.c.slice(), r: l.r, w: l.c[0] + l.c[1] + l.c[2] }));
+    while (ls.length > 16) {
+      let bi = 0, bj = 1, bd = Infinity;
+      for (let i = 0; i < ls.length; i++) for (let j = i + 1; j < ls.length; j++) { const d = V3.len(V3.sub(ls[i].p, ls[j].p)); if (d < bd) { bd = d; bi = i; bj = j; } }
+      const a = ls[bi], b = ls[bj], w = a.w + b.w;
+      const m = { p: [0, 1, 2].map(k => (a.p[k] * a.w + b.p[k] * b.w) / w), c: [0, 1, 2].map(k => a.c[k] + b.c[k]), w };
+      m.r = max(a.r + V3.len(V3.sub(a.p, m.p)), b.r + V3.len(V3.sub(b.p, m.p)));
+      ls.splice(bj, 1); ls[bi] = m;
+    }
+    mergedKey = key; merged = ls;
+    return merged;
+  }
   function buildDraws(eye) {
     const r = S.room, dr = [];
     if (floorDirty) buildFloor();
@@ -713,7 +799,8 @@
     const walk = S.view === 'walk';
     // una parete si nasconde quando la vista è dietro di lei; con lei spariscono anche le decorazioni appese
     const shown = { A: walk || eye[2] > 0, B: walk || eye[0] < r.W, C: walk || eye[2] < r.D, D: walk || eye[0] > 0 };
-    for (const k of WALL_KEYS) if (shown[k]) dr.push({ mesh: R[k], m: IDENT });
+    for (const k of WALL_KEYS) if (shown[k]) dr.push({ mesh: R[k], m: IDENT, emis: lightMode === 'night' ? 0.045 : 1 });
+    sceneLights.length = 0;
     if (S.showRoof && S.view !== 'plan' && (walk || eye[1] < roofH(eye[2]))) dr.push({ mesh: R.roof, m: IDENT });
     curtainDraws(dr, shown);
     const ov = overlapsOfSel();
@@ -733,10 +820,13 @@
           continue;
         }
         if (it.id !== S.sel) continue;
-      } else dr.push(Object.assign(itemDrawable(it.k, M4.compose(it.x, y, it.z, it.rot)), {
+      } else {
+        if (d.light) for (const l of d.light(d)) sceneLights.push({ p: M4.tp(M4.compose(it.x, y, it.z, it.rot), [l[0], l[1], l[2]]), c: [l[3], l[4], l[5]], r: l[6] });
+        dr.push(Object.assign(itemDrawable(it.k, M4.compose(it.x, y, it.z, it.rot)), {
         cast: true,
         tint: it.id === S.sel ? [accLin[0], accLin[1], accLin[2], 0.14] : ov.has(it.id) ? [0.85, 0.08, 0.05, 0.4] : null,
       }));
+      }
       if (d.hang && d.ropes) {
         const c = cos(it.rot), s = sin(it.rot);
         for (const [lx, lz] of d.ropes) {
@@ -762,7 +852,13 @@
   function draw() {
     const c = camMats();
     const draws = buildDraws(c.eye);
-    eng.render({ draws, view: c.view, proj: c.proj, eye: c.eye, clear: clearCol, shadows: true, decals, room: [S.room.W, S.room.D, 0, 0] });
+    const night = lightMode === 'night';
+    if (night) {
+      // luce di rimbalzo calda proporzionale alla potenza dei LED nella sala
+      const sum = sceneLights.reduce((a, l) => [a[0] + l.c[0], a[1] + l.c[1], a[2] + l.c[2]], [0, 0, 0]), k = 0.55 / max(20, S.room.W * S.room.D) * 6;
+      eng.setLighting({ sun: [0.05, 0.06, 0.1], skyUp: [0.03 + sum[0] * k * 0.8, 0.035 + sum[1] * k * 0.8, 0.055 + sum[2] * k * 0.8], skyDn: [0.02 + sum[0] * k, 0.02 + sum[1] * k, 0.025 + sum[2] * k], lights: mergedLights() });
+    } else eng.setLighting({});
+    eng.render({ draws, view: c.view, proj: c.proj, eye: c.eye, clear: night ? NIGHT_BG : clearCol, shadows: true, decals, room: [S.room.W, S.room.D, 0, 0] });
     lastVP = M4.mul(c.proj, c.view);
     placeWallLabels(); placeMeasLabel();
   }
@@ -1267,7 +1363,7 @@
      All'apertura si guarda soltanto: si gira attorno, si zooma, si misura. Per spostare, aggiungere o cambiare
      qualcosa si entra in Modifica (vale solo su questo dispositivo, non per gli altri). */
   var editing = false;   // var: letto anche da funzioni chiamate prima di questa riga
-  const EDIT_ZONES = ['#room-dims', '#wall-cols', '#wall-presets', '#room-ops', '#room-add'];
+  const EDIT_ZONES = ['#room-dims', '#wall-cols', '#wall-presets', '#room-ops', '#room-add', '#cur-pat'];
   function setEditing(v) {
     editing = v;
     if (act && act.type !== 'pinch') finishAct();
@@ -1503,6 +1599,7 @@
     $('#room-dims').innerHTML = num('rm-W', 'Larghezza (pareti A e C)', r.W, 3, 40) + num('rm-D', 'Profondità (pareti B e D)', r.D, 3, 40)
       + num('rm-hLow', 'Altezza lato parete A', r.hLow, 2.2, 12) + num('rm-hHigh', 'Altezza lato parete C', r.hHigh, 2.2, 15);
     $('#rm-roof').checked = S.showRoof;
+    $('#cur-pat').innerHTML = `<label class="fld col" for="cp-sel"><span>Fantasia delle tende</span><select id="cp-sel">${CUR_PATS.map(([k, n]) => `<option value="${k}"${r.curPat === k ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></label>`;
     { const ws = r.openings.filter(o => o.t === 'win'); $('#btn-curall').textContent = ws.length && ws.every(o => o.cur) ? 'Togli le tende' : 'Tende nere a tutte le finestre'; }
     const cols = r.cols || {};
     $('#wall-cols').innerHTML = WALL_KEYS.map(k => `<label class="wc" for="wc-${k}"><input type="color" id="wc-${k}" data-wall="${k}" value="${cols[k] || WALL_COL}"><span>Parete ${k}</span></label>`).join('');
@@ -1588,6 +1685,7 @@
   });
   $('#btn-meas').addEventListener('click', () => setMeasure(!meas.on));
   $('#btn-edit').addEventListener('click', () => setEditing(!editing));
+  $('#btn-light').addEventListener('click', () => setLightMode(lightMode === 'night' ? 'day' : 'night'));
   {
     const pad = $('#walkpad');
     const stop = e => { const b = e.target.closest('[data-mv]'); if (b) { walkIn.pad.delete(b.dataset.mv); b.classList.remove('on'); } };
@@ -1670,6 +1768,7 @@
     applyRoom(r => { const o = r.openings[i]; if (!o) return; if (f === 'cur') { o.cur = e.target.checked; o.cl = 1; return; } if (f === 't' || f === 'wall') o[f] = raw; else { const v = parseFloat(String(raw).replace(',', '.')); if (isFinite(v)) o[f] = v; } if (o.t !== 'win') o.sill = 0; });
   });
   $('#room-ops').addEventListener('click', e => { const b = e.target.closest('[data-opdel]'); if (b) applyRoom(r => { r.openings.splice(+b.dataset.opdel, 1); }); });
+  $('#cur-pat').addEventListener('change', e => { const v = e.target.value; applyRoom(r => { r.curPat = v; }); });
   $('#btn-curall').addEventListener('click', () => {
     const wins = S.room.openings.filter(o => o.t === 'win'), all = wins.length && wins.every(o => o.cur);
     applyRoom(r => { for (const o of r.openings) if (o.t === 'win') { o.cur = !all; o.cl = 1; } });
@@ -1725,6 +1824,7 @@
       <li><b>Interno</b> Guidi un karateka e lo segui alle sue spalle. Dal computer cammini con W A S D o con le frecce (← → per girarti, Q ed E anche, Maiuscolo per andare più veloce). Dal telefono usa le frecce in basso a sinistra. Trascina per guardarti intorno; doppio tocco sul pavimento e ci va camminando.</li>
       <li><b>Insieme</b> Menu, Condividi: chi apre il link modifica questa stessa sala, senza account. Le modifiche arrivano in un paio di secondi.</li>
       <li><b>Tastiera</b> In modifica: R ruota, D duplica, Canc elimina, Ctrl+Z annulla.</li>
+      <li><b>Giorno e sera</b> Il pulsante sotto 3D / Pianta / Interno passa dalla luce del sole alla sera, con la sala illuminata solo da LED e lanterne (categoria Luci LED negli Attrezzi). Vale solo sul tuo dispositivo.</li>
       <li><b>Tende</b> In Sala, sotto Finestre e portone, metti una tenda nera alle finestre che vuoi. Poi toccala nella vista per aprirla o chiuderla (anche senza Modifica), oppure Menu, Apri / chiudi le tende.</li>
       <li><b>Sala</b> Correggi dimensioni, finestre e portone (quelle iniziali sono stimate dalle foto) e scegli il colore di ogni parete.</li>
       <li><b>Modelli 3D</b> Con la grafica realistica alcuni attrezzi e arredi usano modelli 3D veri presi da Sketchfab, con licenza CC BY 4.0. Autori: sousinho, carlaspalomo, plaggy, benchk, vulcanstrength, akio_illu, tboiston, AllQuad. <a href="https://github.com/alessandrop95/sala-3d/blob/main/models/CREDITS.md" target="_blank" rel="noopener">Titoli e link ai modelli</a>.</li></ul>
@@ -1797,6 +1897,7 @@
   renderCatalog(); renderFloorPalette(); renderFloorInfo(); renderRoomPane(); updHist();
   setTab('cat'); if (isNarrow()) setPanelOpen(false);
   setEditing(false);
+  setLightMode(lightMode);
   setView('orbit');
   requestAnimationFrame(frame);
   $('[data-m="gfx"]').textContent = gfx === 'hq' ? 'Grafica semplice (dispositivi lenti)' : 'Grafica realistica';
@@ -1815,5 +1916,5 @@
     document.addEventListener('visibilitychange', () => { if (!document.hidden) checkVersion(); });
     if (CFG.refresh) fetch(CFG.refresh, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => { if (j && j.url && j.anon && (j.url !== CFG.url || j.anon !== CFG.anon)) { CFG.url = j.url; CFG.anon = j.anon; net.next = 0; } }).catch(() => { });
   }
-  window.__sala = { S, cam, net, av, setView, setTab, addItem, select, draw, snapshot, px(x, y, z) { const q = M4.tp(getVP(), [x, y, z]), rc = canvas.getBoundingClientRect(); return [rc.left + (q[0] * 0.5 + 0.5) * rc.width, rc.top + (0.5 - q[1] * 0.5) * rc.height]; } };
+  window.__sala = { S, cam, net, av, placeOnWall, setView, setTab, addItem, select, draw, snapshot, px(x, y, z) { const q = M4.tp(getVP(), [x, y, z]), rc = canvas.getBoundingClientRect(); return [rc.left + (q[0] * 0.5 + 0.5) * rc.width, rc.top + (0.5 - q[1] * 0.5) * rc.height]; } };
 })();

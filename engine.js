@@ -237,6 +237,8 @@ uniform mat4 uVP, uModel, uLightVP;
 out vec3 vN, vW, vC, vM, vP, vNl; out vec4 vL;
 void main(){ vec4 w = uModel*vec4(aPos,1.0); vW = w.xyz; vN = mat3(uModel)*aNor; vC = aCol; vM = aMat; vP = aPos; vNl = aNor; vL = uLightVP*w; gl_Position = uVP*w; }`;
 /* parti comuni: ombre morbide, occlusione negli angoli della sala, tone mapping */
+/* luce di giorno (valori di partenza) */
+const DAY = { sun: [1.0 * 3.1, 0.95 * 3.1, 0.88 * 3.1], skyUp: [0.80, 0.86, 0.97], skyDn: [0.52, 0.47, 0.42] };
 const GLSL_COMMON = `
 uniform sampler2DShadow uShadow; uniform vec3 uEye, uLightDir; uniform vec4 uRoom; uniform float uShadowOn, uTexel, uSoft, uExposure;
 const vec2 PD[12] = vec2[12](vec2(-0.326,-0.406),vec2(-0.840,-0.074),vec2(-0.696,0.457),vec2(-0.203,0.621),vec2(0.962,-0.195),vec2(0.473,-0.480),vec2(0.519,0.767),vec2(0.185,-0.893),vec2(0.507,0.064),vec2(0.896,0.412),vec2(-0.322,-0.933),vec2(-0.792,-0.598));
@@ -262,8 +264,30 @@ float roomAO(vec3 P){
   return a;
 }
 vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
-const vec3 SUN = vec3(1.0,0.95,0.88)*3.1;
-const vec3 SKY_UP = vec3(0.80,0.86,0.97), SKY_DN = vec3(0.52,0.47,0.42);
+uniform vec3 uSun, uSkyUp, uSkyDn; uniform int uLN; uniform vec4 uLP[16], uLC[16]; uniform float uEmis;
+#define SUN uSun
+#define SKY_UP uSkyUp
+#define SKY_DN uSkyDn
+/* luci puntiformi (LED, lanterne): GGX come il sole, senza ombre; uLP.w = raggio d'azione */
+vec3 pointLights(vec3 P, vec3 n, vec3 V, vec3 alb, float rough, float metal){
+  vec3 acc = vec3(0.0);
+  vec3 F0 = mix(vec3(0.04), alb, metal);
+  float a = rough*rough, a2 = a*a, k = (rough+1.0)*(rough+1.0)/8.0, NdV = max(dot(n,V),1e-3);
+  for(int i=0;i<16;i++){
+    if(i >= uLN) break;
+    vec3 Lv = uLP[i].xyz - P; float d2 = dot(Lv,Lv), d = sqrt(d2); vec3 L = Lv/max(d,1e-4);
+    float NdL = max(dot(n,L),0.0);
+    float x = d/uLP[i].w, win = clamp(1.0 - x*x*x*x, 0.0, 1.0);
+    float att = win*win/(d2 + 0.35);
+    if(NdL <= 0.0 || att <= 0.0) continue;
+    vec3 H = normalize(L+V); float NdH = max(dot(n,H),0.0), VdH = max(dot(V,H),0.0);
+    float dd = NdH*NdH*(a2-1.0)+1.0, D = a2/(3.14159*dd*dd);
+    float G = NdL/(NdL*(1.0-k)+k) * NdV/(NdV*(1.0-k)+k);
+    vec3 F = F0 + (1.0-F0)*pow(1.0-VdH, 5.0);
+    acc += ((1.0-F)*(1.0-metal)*alb/3.14159 + D*G*F/(4.0*NdL*NdV+1e-4)) * uLC[i].rgb * NdL * att;
+  }
+  return acc;
+}
 `;
 const FS = `#version 300 es
 precision highp float; precision highp sampler2DShadow; precision highp sampler2DArray;
@@ -311,8 +335,8 @@ void main(){
   vec3 R = reflect(-V, n), env = mix(SKY_DN, SKY_UP*1.15, clamp(R.y*0.5+0.5, 0.0, 1.0));
   vec3 Fa = F0 + (max(vec3(1.0-rough), F0)-F0)*pow(1.0-NdV, 5.0);
   vec3 ambient = (kd*alb*amb*0.82 + Fa*env*(1.0-rough*0.75)*0.55) * ao;
-  vec3 c = direct + ambient;
-  c = mix(c, alb*1.7, vM.x);
+  vec3 c = direct + ambient + pointLights(vW, n, V, alb, rough, metal) * ao;
+  c = mix(c, alb*1.7*uEmis, vM.x);
   c = mix(c, uTint.rgb*1.4, uTint.a);
   o = vec4(pow(aces(c*uExposure), vec3(1.0/2.2)), 1.0);
 }`;
@@ -339,7 +363,7 @@ void main(){
   float NdL = max(dot(n,uLightDir),0.0);
   float sh = uShadowOn>0.5 ? shadowF(vL, n) : 1.0;
   vec3 alb = pow(t.rgb, vec3(2.2));
-  vec3 c = alb*(SUN*NdL*sh*0.96/3.14159 + mix(SKY_DN, SKY_UP, n.y*0.5+0.5)*0.82*roomAO(vW));
+  vec3 c = alb*(SUN*NdL*sh*0.96/3.14159 + mix(SKY_DN, SKY_UP, n.y*0.5+0.5)*0.82*roomAO(vW)) + pointLights(vW, n, normalize(uEye - vW), alb, 0.8, 0.0);
   o = vec4(pow(aces(c*uExposure), vec3(1.0/2.2)), t.a*uAlpha);
 }`;
 
@@ -388,8 +412,9 @@ class Engine {
     if (!gl) throw new Error('WebGL2 non disponibile');
     this.gl = gl; this.canvas = canvas; this.hq = opts.hq !== false;
     this.exposure = 0.9; this.room = [0, 0, 0, 0]; this.texOn = 0;
+    this.setLighting({});
     this.prog = this._program(VS, FS); this.progSh = this._program(VS_SH, FS_SH);
-    const COMMON_U = ['uShadow', 'uEye', 'uLightDir', 'uRoom', 'uShadowOn', 'uTexel', 'uSoft', 'uExposure'];
+    const COMMON_U = ['uShadow', 'uEye', 'uLightDir', 'uRoom', 'uShadowOn', 'uTexel', 'uSoft', 'uExposure', 'uSun', 'uSkyUp', 'uSkyDn', 'uLN', 'uLP', 'uLC', 'uEmis'];
     this.u = {}; for (const n of ['uVP', 'uModel', 'uLightVP', 'uTint', 'uDetail', 'uTexOn', ...COMMON_U]) this.u[n] = gl.getUniformLocation(this.prog, n);
     this.us = { uLightVP: gl.getUniformLocation(this.progSh, 'uLightVP'), uModel: gl.getUniformLocation(this.progSh, 'uModel') };
     this.progT = this._program(VS_T, FS_T);
@@ -510,6 +535,16 @@ class Engine {
     gl.uniform3fv(u.uEye, eye); gl.uniform3fv(u.uLightDir, this.lightDir);
     gl.uniform1f(u.uShadowOn, shadows ? 1 : 0); gl.uniform1f(u.uTexel, 1 / this.SM); gl.uniform1f(u.uSoft, this.soft); gl.uniform1f(u.uExposure, this.exposure);
     gl.uniform4fv(u.uRoom, room || [0, 0, 0, 0]); gl.uniform1i(u.uShadow, 0);
+    const L = this.lighting;
+    gl.uniform3fv(u.uSun, L.sun); gl.uniform3fv(u.uSkyUp, L.skyUp); gl.uniform3fv(u.uSkyDn, L.skyDn);
+    gl.uniform1i(u.uLN, L.n); if (L.n) { gl.uniform4fv(u.uLP, L.lp); gl.uniform4fv(u.uLC, L.lc); }
+    gl.uniform1f(u.uEmis, 1);
+  }
+  /* luce della scena: sole e cielo, più fino a 16 luci puntiformi {p:[x,y,z], r: raggio, c:[r,g,b]} */
+  setLighting({ sun, skyUp, skyDn, lights }) {
+    const ls = (lights || []).slice(0, 16), lp = new Float32Array(64), lc = new Float32Array(64);
+    ls.forEach((l, i) => { lp.set([l.p[0], l.p[1], l.p[2], l.r || 6], i * 4); lc.set([l.c[0], l.c[1], l.c[2], 0], i * 4); });
+    this.lighting = { sun: sun || DAY.sun, skyUp: skyUp || DAY.skyUp, skyDn: skyDn || DAY.skyDn, n: ls.length, lp, lc };
   }
   render({ draws, view, proj, eye, clear, shadows, decals, room }) {
     const gl = this.gl;
@@ -538,6 +573,7 @@ class Engine {
     for (const d of draws) if (d.mesh && d.mesh.n) {
       gl.uniformMatrix4fv(this.u.uModel, false, d.m);
       const t = d.tint; gl.uniform4f(this.u.uTint, t ? t[0] : 0, t ? t[1] : 0, t ? t[2] : 0, t ? t[3] : 0);
+      gl.uniform1f(this.u.uEmis, d.emis == null ? 1 : d.emis);
       gl.bindVertexArray(d.mesh.vao); gl.drawArrays(gl.TRIANGLES, 0, d.mesh.n);
     }
     if (draws.some(d => d.model)) {
@@ -610,7 +646,7 @@ void main(){
   vec3 amb = mix(SKY_DN, SKY_UP, n.y*0.5+0.5);
   vec3 R = reflect(-V, n), env = mix(SKY_DN, SKY_UP*1.15, clamp(R.y*0.5+0.5, 0.0, 1.0));
   vec3 Fa = F0 + (max(vec3(1.0-rough), F0)-F0)*pow(1.0-NdV, 5.0);
-  vec3 c = direct + (kd*alb*amb*0.82 + Fa*env*(1.0-rough*0.75)*0.55) * ao;
+  vec3 c = direct + (kd*alb*amb*0.82 + Fa*env*(1.0-rough*0.75)*0.55) * ao + pointLights(vW, n, V, alb, rough, metal) * ao;
   c = mix(c, alb*1.7, uGlow);
   c = mix(c, uTint.rgb*1.4, uTint.a);
   o = vec4(pow(aces(c*uExposure), vec3(1.0/2.2)), 1.0);
@@ -638,7 +674,7 @@ Engine.prototype.initModels = function () {
   this.progP = this._program(VS_P, FS_P);
   this.up = {};
   for (const n of ['uVP', 'uModel', 'uNM', 'uLightVP', 'uBase', 'uMR', 'uNorm', 'uOcc', 'uOccS', 'uGlow', 'uBaseF', 'uMRF', 'uHasNorm', 'uCut', 'uTint',
-    'uShadow', 'uEye', 'uLightDir', 'uRoom', 'uShadowOn', 'uTexel', 'uSoft', 'uExposure']) this.up[n] = gl.getUniformLocation(this.progP, n);
+    'uShadow', 'uEye', 'uLightDir', 'uRoom', 'uShadowOn', 'uTexel', 'uSoft', 'uExposure', 'uSun', 'uSkyUp', 'uSkyDn', 'uLN', 'uLP', 'uLC', 'uEmis']) this.up[n] = gl.getUniformLocation(this.progP, n);
   const px = (r, g, b, a) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([r, g, b, a])); return t; };
   this.texWhite = px(255, 255, 255, 255); this.texFlat = px(128, 128, 255, 255);
 };
@@ -764,4 +800,31 @@ Engine.prototype._drawModel = function (mdl, shadowPass) {
     }
     if (p.ib) gl.drawElements(gl.TRIANGLES, p.count, p.itype, 0); else gl.drawArrays(gl.TRIANGLES, 0, p.count);
   }
+};
+
+/* texture ripetibile in sRGB (per stoffe e fantasie disegnate su canvas) */
+Engine.prototype.repeatTexture = function (canvas) {
+  const gl = this.gl, t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  if (this.aniso) gl.texParameterf(gl.TEXTURE_2D, this.aniso.TEXTURE_MAX_ANISOTROPY_EXT, min(8, gl.getParameter(this.aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+  return t;
+};
+/* modello semplice da un array di vertici (pos 3, normale 3, uv 2) con una texture di base */
+Engine.prototype.texturedModel = function (verts, base, rough) {
+  const gl = this.gl, vao = gl.createVertexArray(), vbo = gl.createBuffer();
+  gl.bindVertexArray(vao); gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
+  gl.bindVertexArray(null);
+  return { prims: [{ vao, vbo, ib: null, itype: 0, count: verts.length / 8, baseF: [1, 1, 1, 1], mrf: [0, rough == null ? 0.85 : rough, 1], cut: -1, base, mr: null, norm: null, occ: null, occS: 0, glow: 0 }] };
+};
+Engine.prototype.freeModel = function (mdl) {
+  if (!mdl) return;
+  for (const p of mdl.prims) { this.gl.deleteVertexArray(p.vao); this.gl.deleteBuffer(p.vbo); if (p.ib) this.gl.deleteBuffer(p.ib); }
 };
