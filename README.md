@@ -55,3 +55,7 @@ All'apertura la sala si può solo guardare (girare, zoomare, misurare, toccare u
 ## Vista Interno
 
 Nella vista Interno si guida un karateka (karategi bianco, cintura nera) visto alle spalle: W A S D o frecce per camminare (← → / Q E per girarsi, Maiuscolo per correre), pulsanti a schermo sui dispositivi touch, doppio tocco sul pavimento per farlo camminare fin lì. La figura è in `karateka.js`: parti articolate (bacino, busto, testa, braccia, gambe, piedi) e una camminata calcolata dalla fase del passo. La stessa figura, ferma, è l'attrezzo "Karateka 175 cm (scala)".
+
+## Tende
+
+Ogni finestra può avere una tenda nera (Sala → Finestre e portone, oppure "Tende nere a tutte le finestre"). La tenda va dal bastone sopra la finestra fino al davanzale; si apre e si chiude toccandola nella vista, anche senza Modifica, o da Menu → Apri / chiudi le tende. Nei dati è `cur: true` e `cl` (1 chiusa, 0 aperta) sull'apertura.

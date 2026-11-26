@@ -7,7 +7,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
   /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
-  const APP_VER = '2026-11-26l';
+  const APP_VER = '2026-11-26m';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
@@ -149,7 +149,9 @@
       const hm = min(wi.hAt(u), wi.hAt(u + w)) - 0.05;
       const t = p.t === 'door' || p.t === 'pass' ? p.t : 'win';
       const sill = t !== 'win' ? 0 : clamp(+p.sill || 0, 0, hm - 0.3), h = clamp(+p.h || 1, 0.3, hm - sill);
-      o.openings.push({ t, wall: wi.key, u, w, sill, h });
+      const op = { t, wall: wi.key, u, w, sill, h };
+      if (t === 'win' && p.cur) { op.cur = true; op.cl = clamp(p.cl == null ? 1 : +p.cl || 0, 0, 1); }
+      o.openings.push(op);
     }
     S.room = prev;
     o.cols = {};
@@ -436,6 +438,88 @@
     mb.frame(null);
     return eng.mesh(mb);
   }
+  /* ---------------- tende nere alle finestre ----------------
+     Due teli plissettati appesi a un bastone sopra la finestra, lunghi fino al davanzale.
+     cl = 1 chiusa (i teli si incontrano al centro), 0 aperta (raccolti ai lati). */
+  const curt = new Map();   // indice apertura -> { key, mesh, disp }
+  const CUR_Z = 0.1, CUR_COL = '#121212';
+  function buildCurtain(wk, o, c) {
+    const wi = wallInfo(wk), b = new MB();
+    b.frame(wi.o, wi.dir, [0, 1, 0], wi.n);
+    const top = o.sill + o.h, ext = 0.14, x0 = o.u - ext, x1 = o.u + o.w + ext, mid = o.u + o.w / 2;
+    // bastone, staffe e pomoli
+    b.cyl((x0 + x1) / 2, top + 0.07, CUR_Z, 0.013, x1 - x0 + 0.1, '#1b1b1b', { axis: 'x', g: 0.5, m: MAT.METAL, seg: 10 });
+    for (const x of [x0 - 0.05, x1 + 0.05]) b.sph(x, top + 0.07, CUR_Z, 0.025, '#1b1b1b', { g: 0.5, m: MAT.METAL });
+    for (const x of [x0 + 0.04, x1 - 0.04]) b.box(x, top + 0.07, CUR_Z / 2, 0.02, 0.03, CUR_Z, '#1b1b1b', { g: 0.4, m: MAT.METAL });
+    const half = mid - x0 + 0.03, fabric = half * 1.6, stack = max(0.12, fabric * 0.11);
+    const yb = o.sill + 0.01, yt = top + 0.045;
+    for (const side of [-1, 1]) {
+      b._mat(CUR_COL, { m: MAT.PAPER }); b._euler([0, 0, 0], null);   // (gli anelli del telo precedente cambiano materiale e posizione)
+      const a = side < 0 ? x0 : x1;                                // bordo fisso, vicino al bastone
+      const span = stack + (half - stack) * c, xa = a, xb = a - side * span;
+      const n = max(3, round(fabric / 0.12)), K = n * 8;
+      const ratio = fabric / max(span, 1e-3);
+      const A = min(0.07, span / (2 * PI * n) * Math.sqrt(max(0, 2 * (ratio * ratio - 1))));
+      const P = k => { const t = k / K, x = xa + (xb - xa) * t, ph = t * n * 2 * PI; return [x, CUR_Z + 0.03 + A * (1 - Math.cos(ph)), A * Math.sin(ph) * 2 * PI * n / max(span, 1e-3)]; };
+      for (let k = 0; k < K; k++) {
+        const p = P(k), q = P(k + 1);
+        // normale della piega (nel piano x-z della parete), verso la sala
+        const nrm = (dz) => { const nx = -dz * side, nz = 1, l = Math.hypot(nx, nz); return [nx / l, 0, nz / l]; };
+        const np = nrm(p[2]), nq = nrm(q[2]);
+        const tri = (A1, A2, A3) => { for (const [v, nn] of [A1, A2, A3]) b._v(v[0], v[1], v[2], nn[0], nn[1], nn[2]); };
+        const pb = [p[0], yb, p[1]], pt = [p[0], yt, p[1]], qb = [q[0], yb, q[1]], qt = [q[0], yt, q[1]];
+        const inv = v => [-v[0], 0, -v[2]];
+        if (side < 0) { tri([pb, np], [qb, nq], [qt, nq]); tri([pb, np], [qt, nq], [pt, np]); tri([pb, inv(np)], [qt, inv(nq)], [qb, inv(nq)]); tri([pb, inv(np)], [pt, inv(np)], [qt, inv(nq)]); }
+        else { tri([pb, np], [qt, nq], [qb, nq]); tri([pb, np], [pt, np], [qt, nq]); tri([pb, inv(np)], [qb, inv(nq)], [qt, inv(nq)]); tri([pb, inv(np)], [qt, inv(nq)], [pt, inv(np)]); }
+      }
+      // anelli sul bastone
+      const nr = max(3, round(span / 0.1));
+      for (let i = 0; i <= nr; i++) b.tor(xa - side * span * i / nr, top + 0.07, CUR_Z, 0.022, 0.004, '#1b1b1b', { r: [0, 0, PI / 2], g: 0.5, m: MAT.METAL, seg: 10 });
+    }
+    b.frame(null);
+    return eng.mesh(b);
+  }
+  function curtainDraws(dr, shown) {
+    const live = new Set();
+    S.room.openings.forEach((o, i) => {
+      if (o.t !== 'win' || !o.cur || !shown[o.wall]) return;
+      let e = curt.get(i);
+      if (!e) { e = { key: '', mesh: null, disp: o.cl }; curt.set(i, e); }
+      const key = [o.wall, o.u, o.w, o.sill, o.h, e.disp.toFixed(3)].join();
+      if (key !== e.key) { if (e.mesh) eng.free(e.mesh); e.mesh = buildCurtain(o.wall, o, e.disp); e.key = key; }
+      live.add(i); dr.push({ mesh: e.mesh, m: IDENT, cast: true });
+    });
+    for (const [i, e] of curt) if (!live.has(i) && !(S.room.openings[i] && S.room.openings[i].cur)) { if (e.mesh) eng.free(e.mesh); curt.delete(i); }
+  }
+  function curtainsMoving() {
+    let mv = false;
+    S.room.openings.forEach((o, i) => { const e = curt.get(i); if (e && o.cur && abs(e.disp - o.cl) > 1e-3) mv = true; });
+    return mv;
+  }
+  function curtainStep(dt) {
+    S.room.openings.forEach((o, i) => {
+      const e = curt.get(i); if (!e || !o.cur) return;
+      const d = o.cl - e.disp; if (abs(d) < 1e-3) { e.disp = o.cl; return; }
+      e.disp += Math.sign(d) * min(abs(d), dt * 0.9); dirty = true;
+    });
+  }
+  /* tocco su una tenda: la apre o la chiude */
+  function curtainAt(px, py) {
+    const ray = rayAt(px, py); let best = null;
+    S.room.openings.forEach((o, i) => {
+      if (o.t !== 'win' || !o.cur) return;
+      const wi = wallInfo(o.wall), dn = V3.dot(ray.d, wi.n); if (dn > -1e-4) return;   // solo guardando la parete dall'interno
+      const t = (CUR_Z + 0.03 - V3.dot(V3.sub(ray.o, wi.o), wi.n)) / dn; if (t <= 0) return;
+      const X = V3.add(ray.o, V3.mul(ray.d, t)), u = V3.dot(V3.sub(X, wi.o), wi.dir);
+      if (u > o.u - 0.2 && u < o.u + o.w + 0.2 && X[1] > o.sill - 0.05 && X[1] < o.sill + o.h + 0.15 && (!best || t < best.t)) best = { t, i };
+    });
+    return best ? best.i : -1;
+  }
+  function toggleCurtain(i, v) {
+    const o = S.room.openings[i]; if (!o || !o.cur) return;
+    o.cl = v != null ? v : (o.cl > 0.5 ? 0 : 1);
+    changed(); dirty = true;
+  }
   function buildRoof() {
     const r = S.room, W = r.W, D = r.D, mb = new MB(), t = 0.08, ov = 0.3, sl = (r.hHigh - r.hLow) / D;
     mb.beam([W / 2, r.hLow - ov * sl + t / 2, -ov], [W / 2, r.hHigh + ov * sl + t / 2, D + ov], W + 2 * ov, t, '#e7eaea', MM);
@@ -631,6 +715,7 @@
     const shown = { A: walk || eye[2] > 0, B: walk || eye[0] < r.W, C: walk || eye[2] < r.D, D: walk || eye[0] > 0 };
     for (const k of WALL_KEYS) if (shown[k]) dr.push({ mesh: R[k], m: IDENT });
     if (S.showRoof && S.view !== 'plan' && (walk || eye[1] < roofH(eye[2]))) dr.push({ mesh: R.roof, m: IDENT });
+    curtainDraws(dr, shown);
     const ov = overlapsOfSel();
     decals.length = 0; const live = new Set();
     for (const it of S.items) {
@@ -757,9 +842,11 @@
     if (av.w < 0.002 && !target) av.w = 0;
     dirty = true;
   }
+  let curT = 0;
   function frame(now) {
     now = now || performance.now();
     if (walkActive()) walkTick(now); else walkIn.t = 0;
+    if (curtainsMoving()) { curtainStep(min(0.1, curT ? (now - curT) / 1000 : 0.016)); curT = now; } else curT = 0;
     if (anim) animStep(now); if (dirty) { dirty = false; draw(); } requestAnimationFrame(frame);
   }
   function resize() {
@@ -1286,7 +1373,10 @@
       if (S.view === 'walk' && now - lastTap.t < 380 && hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
         const q = rayPlaneY(rayAt(e.clientX, e.clientY), 0.04);
         if (q) { walkIn.goal = [clamp(q[0], 0.4, S.room.W - 0.4), clamp(q[2], 0.4, S.room.D - 0.4)]; dirty = true; }
-      } else select(act.look || null);
+      } else {
+        const ci = !act.look ? curtainAt(e.clientX, e.clientY) : -1;
+        if (ci >= 0) toggleCurtain(ci); else select(act.look || null);
+      }
       lastTap = { t: now, x: e.clientX, y: e.clientY };
     }
     finishAct();
@@ -1413,6 +1503,7 @@
     $('#room-dims').innerHTML = num('rm-W', 'Larghezza (pareti A e C)', r.W, 3, 40) + num('rm-D', 'Profondità (pareti B e D)', r.D, 3, 40)
       + num('rm-hLow', 'Altezza lato parete A', r.hLow, 2.2, 12) + num('rm-hHigh', 'Altezza lato parete C', r.hHigh, 2.2, 15);
     $('#rm-roof').checked = S.showRoof;
+    { const ws = r.openings.filter(o => o.t === 'win'); $('#btn-curall').textContent = ws.length && ws.every(o => o.cur) ? 'Togli le tende' : 'Tende nere a tutte le finestre'; }
     const cols = r.cols || {};
     $('#wall-cols').innerHTML = WALL_KEYS.map(k => `<label class="wc" for="wc-${k}"><input type="color" id="wc-${k}" data-wall="${k}" value="${cols[k] || WALL_COL}"><span>Parete ${k}</span></label>`).join('');
     $('#wall-presets').innerHTML = WALL_PRESETS.map(([n, c]) => `<button type="button" class="chip pc" data-wcol="${c}" title="Tutte le pareti: ${esc(n)}"><i style="background:${c}"></i>${esc(n)}</button>`).join('');
@@ -1424,7 +1515,8 @@
       <label for="op-u-${i}">Dall'angolo<input id="op-u-${i}" data-f="u" type="number" inputmode="decimal" step="0.05" value="${+o.u.toFixed(2)}"></label>
       <label for="op-l-${i}">Larghezza<input id="op-l-${i}" data-f="w" type="number" inputmode="decimal" step="0.05" value="${+o.w.toFixed(2)}"></label>
       <label for="op-s-${i}">Da terra<input id="op-s-${i}" data-f="sill" type="number" inputmode="decimal" step="0.05" value="${+o.sill.toFixed(2)}"${o.t !== 'win' ? ' disabled' : ''}></label>
-      <label for="op-h-${i}">Altezza<input id="op-h-${i}" data-f="h" type="number" inputmode="decimal" step="0.05" value="${+o.h.toFixed(2)}"></label></div></div>`).join('');
+      <label for="op-h-${i}">Altezza<input id="op-h-${i}" data-f="h" type="number" inputmode="decimal" step="0.05" value="${+o.h.toFixed(2)}"></label></div>${o.t === 'win' ? `
+      <label class="chk" for="op-c-${i}"><input type="checkbox" id="op-c-${i}" data-f="cur"${o.cur ? ' checked' : ''}>Tenda nera (si apre e chiude toccandola)</label>` : ''}</div>`).join('');
   }
   function applyRoom(mut) {
     if (needEdit()) { renderRoomPane(); return; }
@@ -1547,6 +1639,13 @@
     else if (m === 'import') openImport();
     else if (m === 'clear') { pushHist(); S.items = []; S.sel = null; changed(); toast('Sala svuotata. Con Annulla torni indietro.'); }
     else if (m === 'example') { pushHist(); restore(exampleProject()); afterBigChange(); setView(S.view, false); }
+    else if (m === 'curtains') {
+      const ws = S.room.openings.filter(o => o.t === 'win' && o.cur);
+      if (!ws.length) { toast('Non ci sono tende. Si aggiungono in Sala, sotto Finestre e portone.'); return; }
+      const v = ws.some(o => o.cl > 0.5) ? 0 : 1;
+      for (const o of ws) o.cl = v;
+      changed(); dirty = true; toast(v ? 'Tende chiuse.' : 'Tende aperte.', 2000);
+    }
     else if (m === 'help') openHelp();
   });
   $('#room-dims').addEventListener('change', e => {
@@ -1568,9 +1667,13 @@
   $('#room-ops').addEventListener('change', e => {
     const row = e.target.closest('.op'), f = e.target.dataset.f; if (!row || !f) return;
     const i = +row.dataset.i, raw = e.target.value;
-    applyRoom(r => { const o = r.openings[i]; if (!o) return; if (f === 't' || f === 'wall') o[f] = raw; else { const v = parseFloat(String(raw).replace(',', '.')); if (isFinite(v)) o[f] = v; } if (o.t !== 'win') o.sill = 0; });
+    applyRoom(r => { const o = r.openings[i]; if (!o) return; if (f === 'cur') { o.cur = e.target.checked; o.cl = 1; return; } if (f === 't' || f === 'wall') o[f] = raw; else { const v = parseFloat(String(raw).replace(',', '.')); if (isFinite(v)) o[f] = v; } if (o.t !== 'win') o.sill = 0; });
   });
   $('#room-ops').addEventListener('click', e => { const b = e.target.closest('[data-opdel]'); if (b) applyRoom(r => { r.openings.splice(+b.dataset.opdel, 1); }); });
+  $('#btn-curall').addEventListener('click', () => {
+    const wins = S.room.openings.filter(o => o.t === 'win'), all = wins.length && wins.every(o => o.cur);
+    applyRoom(r => { for (const o of r.openings) if (o.t === 'win') { o.cur = !all; o.cl = 1; } });
+  });
   $('#btn-addwin').addEventListener('click', () => applyRoom(r => { r.openings.push({ t: 'win', wall: 'C', u: 1, w: 2, sill: 1.1, h: 1.5 }); }));
   $('#btn-adddoor').addEventListener('click', () => applyRoom(r => { r.openings.push({ t: 'door', wall: 'D', u: 1, w: 1, sill: 0, h: 2.1 }); }));
   $('#btn-copy').addEventListener('click', async () => {
@@ -1622,6 +1725,7 @@
       <li><b>Interno</b> Guidi un karateka e lo segui alle sue spalle. Dal computer cammini con W A S D o con le frecce (← → per girarti, Q ed E anche, Maiuscolo per andare più veloce). Dal telefono usa le frecce in basso a sinistra. Trascina per guardarti intorno; doppio tocco sul pavimento e ci va camminando.</li>
       <li><b>Insieme</b> Menu, Condividi: chi apre il link modifica questa stessa sala, senza account. Le modifiche arrivano in un paio di secondi.</li>
       <li><b>Tastiera</b> In modifica: R ruota, D duplica, Canc elimina, Ctrl+Z annulla.</li>
+      <li><b>Tende</b> In Sala, sotto Finestre e portone, metti una tenda nera alle finestre che vuoi. Poi toccala nella vista per aprirla o chiuderla (anche senza Modifica), oppure Menu, Apri / chiudi le tende.</li>
       <li><b>Sala</b> Correggi dimensioni, finestre e portone (quelle iniziali sono stimate dalle foto) e scegli il colore di ogni parete.</li>
       <li><b>Modelli 3D</b> Con la grafica realistica alcuni attrezzi e arredi usano modelli 3D veri presi da Sketchfab, con licenza CC BY 4.0. Autori: sousinho, carlaspalomo, plaggy, benchk, vulcanstrength, akio_illu, tboiston, AllQuad. <a href="https://github.com/alessandrop95/sala-3d/blob/main/models/CREDITS.md" target="_blank" rel="noopener">Titoli e link ai modelli</a>.</li></ul>
       <div class="row"><button type="button" class="primary" data-close>Ho capito</button></div>`);
