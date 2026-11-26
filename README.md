@@ -41,3 +41,5 @@ La tabella non è leggibile da fuori: si passa solo dalle due funzioni, quindi i
 ## Pubblicazione
 
 Sito statico su GitHub Pages, senza passaggi di build: basta pubblicare la cartella così com'è.
+
+A ogni pubblicazione aggiorna la versione in tre punti uguali: `APP_VER` in `app.js`, `version.json` e i `?v=` degli script in `index.html`. Così le pagine rimaste aperte propongono di aggiornarsi e il browser non riusa i file vecchi.

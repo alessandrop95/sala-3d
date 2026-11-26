@@ -6,6 +6,8 @@
   const cm = n => Math.round(n * 100);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
+  /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
+  const APP_VER = '2026-11-26b';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
@@ -29,7 +31,7 @@
       { t: 'win', wall: 'B', u: 4.2, w: 7.4, sill: 1.1, h: 1.9 },
     ],
   };
-  const S = { room: null, nx: 0, nz: 0, cells: [], items: [], custom: [], sel: null, view: 'orbit', tab: 'cat', paint: 'g4', showRoof: true, cat: 'tutti' };
+  const S = { room: null, nx: 0, nz: 0, cells: [], items: [], custom: [], sel: null, view: 'orbit', tab: 'cat', paint: 'g4', showRoof: true, cat: 'tutti', extra: [] };
   const cam = { yaw: -0.62, pitch: 0.62, dist: 24, target: [5, 1, 6], walk: [5, 1.65, 9], wyaw: 0, wpitch: -0.05 };
   const FLOOR_BY = new Map(FLOORS.map(f => [f.id, f]));
   const DEF = new Map(CATALOG.map(d => [d.k, d]));
@@ -99,7 +101,7 @@
 
   /* ---------------- progetto: salva / carica ---------------- */
   function snapshot() {
-    return JSON.stringify({ v: 1, room: S.room, nx: S.nx, nz: S.nz, cells: S.cells, items: S.items, custom: S.custom });
+    return JSON.stringify({ v: 1, room: S.room, nx: S.nx, nz: S.nz, cells: S.cells, items: S.extra.length ? S.items.concat(S.extra) : S.items, custom: S.custom });
   }
   function sanitizeRoom(r) {
     const o = {
@@ -122,7 +124,7 @@
     const nx = ceil(S.room.W - 1e-6), nz = ceil(S.room.D - 1e-6), cells = new Array(nx * nz);
     for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
       const v = oldCells && oldNx ? oldCells[clamp(j, 0, oldNz - 1) * oldNx + clamp(i, 0, oldNx - 1)] : 'tb';
-      cells[j * nx + i] = FLOOR_BY.has(v) ? v : 'tb';
+      cells[j * nx + i] = FLOOR_BY.has(v) || (typeof v === 'string' && /^[a-z0-9]{1,8}$/.test(v)) ? v : 'tb';   // un pavimento sconosciuto (versione più nuova) si conserva
     }
     S.nx = nx; S.nz = nz; S.cells = cells;
   }
@@ -136,10 +138,10 @@
     syncCustomDefs();
     S.room = sanitizeRoom(p.room);
     resizeFloor(+p.nx || 0, +p.nz || 0, Array.isArray(p.cells) ? p.cells : null);
-    S.items = []; const ids = new Set();
+    S.items = []; S.extra = []; const ids = new Set();
     for (const q of p.items || []) {
       const isDec = q.k === DECAL;
-      if (!isDec && !DEF.has(q.k)) continue;
+      if (!isDec && !DEF.has(q.k)) { if (q && typeof q.k === 'string' && S.extra.length < 500) S.extra.push(q); continue; }   // oggetto di una versione più nuova: si conserva così com'è
       let id = +q.id || 0; if (!id || ids.has(id)) id = newId(); ids.add(id);
       const it = { id, k: q.k, x: +q.x || 0, z: +q.z || 0, rot: +q.rot || 0, elev: +q.elev || 0 };
       if (isDec) { const dc = cleanDecal(q); if (!dc) continue; Object.assign(it, dc); }
@@ -147,6 +149,7 @@
       clampItem(it); S.items.push(it);
     }
     if (!S.items.some(i => i.id === S.sel)) S.sel = null;
+    if (S.extra.length || S.cells.some(c => !FLOOR_BY.has(c))) showUpdate(true);
     buildRoom(); floorDirty = true; dirty = true;
   }
   function exampleProject() {
@@ -418,7 +421,7 @@
     eng.free(R.floor);
     const mb = new MB(), W = S.room.W, D = S.room.D, g = 0.004;
     for (let j = 0; j < S.nz; j++) for (let i = 0; i < S.nx; i++) {
-      const f = FLOOR_BY.get(S.cells[j * S.nx + i]);
+      const f = FLOOR_BY.get(S.cells[j * S.nx + i]) || FLOORS[0];
       if (!f || !f.th) continue;
       const x0 = i, x1 = min(i + 1, W), z0 = j, z1 = min(j + 1, D);
       if (x1 - x0 < 0.02 || z1 - z0 < 0.02) continue;
@@ -1483,6 +1486,27 @@
     download('sala-3d.png', new Blob([u8], { type: 'image/png' }));
   }
 
+  /* ---------------- aggiornamenti del programma ----------------
+     Una pagina rimasta aperta a lungo continua a usare il programma vecchio: controlla version.json e propone di aggiornare. */
+  let updShown = false;
+  function showUpdate(newer) {
+    if (updShown) return; updShown = true;
+    $('#update-txt').textContent = newer ? 'Questa sala contiene elementi di una versione più nuova del programma.' : 'È disponibile una nuova versione del programma.';
+    $('#update').hidden = false;
+  }
+  function doUpdate() { try { saveCache(); } catch (e) { /* si aggiorna comunque */ } location.reload(); }
+  async function checkVersion() {
+    try {
+      const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const j = await r.json();
+      if (!j || !j.v || j.v === APP_VER) return;
+      if (document.hidden && !net.dirty) { doUpdate(); return; }   // pagina in secondo piano e niente da salvare: si aggiorna da sola
+      showUpdate(false);
+    } catch (e) { /* senza rete si riprova più tardi */ }
+  }
+  $('#btn-update').addEventListener('click', doUpdate);
+
   /* ---------------- avvio ---------------- */
   try { const pf = JSON.parse(localStorage.getItem('sala3d.prefs') || 'null'); if (pf && pf.showRoof === false) S.showRoof = false; } catch (e) { /* preferenze non disponibili */ }
   let startId = (new URLSearchParams(location.search).get('s') || '').toLowerCase();
@@ -1510,6 +1534,8 @@
     document.addEventListener('visibilitychange', () => { if (!document.hidden) { net.next = 0; syncTick(false); } });
     window.addEventListener('online', () => { net.next = 0; syncTick(false); });
     window.addEventListener('pagehide', saveCache);
+    checkVersion(); setInterval(checkVersion, 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkVersion(); });
     if (CFG.refresh) fetch(CFG.refresh, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => { if (j && j.url && j.anon && (j.url !== CFG.url || j.anon !== CFG.anon)) { CFG.url = j.url; CFG.anon = j.anon; net.next = 0; } }).catch(() => { });
   }
   window.__sala = { S, cam, net, setView, setTab, addItem, select, draw, snapshot, px(x, y, z) { const q = M4.tp(getVP(), [x, y, z]), rc = canvas.getBoundingClientRect(); return [rc.left + (q[0] * 0.5 + 0.5) * rc.width, rc.top + (0.5 - q[1] * 0.5) * rc.height]; } };
