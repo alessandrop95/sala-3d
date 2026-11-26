@@ -82,15 +82,41 @@ function colLin(hex) {
 
 /* Costruttore di mesh: 11 float per vertice (pos, normale, colore, emissivo, lucido).
    Ogni primitiva ha una base locale (C,X,Y,Z); `frame` aggiunge una base esterna. */
+/* materiali: ognuno ha una trama procedurale (vedi makeDetailLayer) */
+const MAT = { PLAIN: 0, WOOD: 1, TATAMI: 2, RUBBER: 3, METAL: 4, CONCRETE: 5, PLASTER: 6, LEATHER: 7, PAPER: 8, GRASS: 9 };
+const MAT_COUNT = 10;
+const _matCache = new Map();
+/* colori del catalogo che corrispondono a un materiale preciso (imbottiture, gomma, carta) */
+const COLOR_MAT = { '#2b2d31': 7, '#26272b': 7, '#8c1f1a': 7, '#efe3c6': 7, '#2f5fa8': 7, '#232427': 3, '#b0352c': 3, '#1f2023': 3, '#f4efe2': 8, '#f6e4bb': 8, '#c99a7a': 0 };
+/* materiale dedotto dal colore quando l'oggetto non lo dichiara: metallo se lucido, legno se marrone */
+function guessMat(hex, o) {
+  if (o && o.m != null) return o.m;
+  if (o && o.e >= 0.5) return MAT.PLAIN;
+  if (o && o.g >= 0.6) return MAT.METAL;
+  if (COLOR_MAT[hex] != null) return COLOR_MAT[hex];
+  let m = _matCache.get(hex);
+  if (m != null) return m;
+  const n = parseInt(hex.slice(1), 16), r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const mx = max(r, g, b), mn = min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+  m = MAT.PLAIN;
+  if (d > 1e-3) {
+    const sat = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; if (h < 0) h += 360;
+    if (h >= 15 && h <= 42 && sat > 0.2 && l > 0.12 && l < 0.86) m = MAT.WOOD;
+  }
+  _matCache.set(hex, m);
+  return m;
+}
+
 class MB {
   constructor() {
     this.a = [];
     this.C = [0, 0, 0]; this.X = [1, 0, 0]; this.Y = [0, 1, 0]; this.Z = [0, 0, 1];
-    this.F = null; this.c = [1, 1, 1]; this.e = 0; this.g = 0;
+    this.F = null; this.c = [1, 1, 1]; this.e = 0; this.g = 0; this.m = 0;
   }
-  get count() { return this.a.length / 11; }
+  get count() { return this.a.length / 12; }
   frame(C, X, Y, Z) { this.F = C ? { C, X, Y, Z } : null; return this; }
-  _mat(hex, o) { this.c = colLin(hex); this.e = (o && o.e) || 0; this.g = (o && o.g) || 0; }
+  _mat(hex, o) { this.c = colLin(hex); this.e = (o && o.e) || 0; this.g = (o && o.g) || 0; this.m = guessMat(hex, o); }
   _euler(c, r) {
     this.C = c;
     if (!r) { this.X = [1, 0, 0]; this.Y = [0, 1, 0]; this.Z = [0, 0, 1]; return; }
@@ -118,7 +144,7 @@ class MB {
       px = F.C[0] + F.X[0] * a + F.Y[0] * b + F.Z[0] * c; py = F.C[1] + F.X[1] * a + F.Y[1] * b + F.Z[1] * c; pz = F.C[2] + F.X[2] * a + F.Y[2] * b + F.Z[2] * c;
       qx = F.X[0] * d + F.Y[0] * e + F.Z[0] * f; qy = F.X[1] * d + F.Y[1] * e + F.Z[1] * f; qz = F.X[2] * d + F.Y[2] * e + F.Z[2] * f;
     }
-    this.a.push(px, py, pz, qx, qy, qz, this.c[0], this.c[1], this.c[2], this.e, this.g);
+    this.a.push(px, py, pz, qx, qy, qz, this.c[0], this.c[1], this.c[2], this.e, this.g, this.m);
   }
   _quad(p0, p1, p2, p3, n) {
     this._v(p0[0], p0[1], p0[2], n[0], n[1], n[2]); this._v(p1[0], p1[1], p1[2], n[0], n[1], n[2]); this._v(p2[0], p2[1], p2[2], n[0], n[1], n[2]);
@@ -154,15 +180,15 @@ class MB {
     this._mat(hex, o);
     const ax = (o && o.axis) || 'y';
     this._euler([x, y, z], ax === 'x' ? [0, 0, -PI / 2] : ax === 'z' ? [PI / 2, 0, 0] : (o && o.r) || null);
-    this._cyl(r, o && o.r2 != null ? o.r2 : r, h, (o && o.seg) || 14);
+    this._cyl(r, o && o.r2 != null ? o.r2 : r, h, MB.seg((o && o.seg) || 14));
     return this;
   }
   /* tubo tra due punti */
-  tube(p0, p1, r, hex, o) { this._mat(hex, o); const l = this._dir(p0, p1); this._cyl(r, r, l, (o && o.seg) || 10); return this; }
+  tube(p0, p1, r, hex, o) { this._mat(hex, o); const l = this._dir(p0, p1); this._cyl(r, r, l, MB.seg((o && o.seg) || 10)); return this; }
   /* sfera / ellissoide (o.s = [sx,sy,sz]) */
   sph(x, y, z, r, hex, o) {
     this._mat(hex, o); this._euler([x, y, z], o && o.r);
-    const s = (o && o.s) || [1, 1, 1], NU = (o && o.seg) || 16, NV = 10;
+    const s = (o && o.s) || [1, 1, 1], NU = MB.seg((o && o.seg) || 16), NV = MB.seg(10);
     const P = (u, v) => {
       const th = u / NU * 2 * PI, ph = v / NV * PI;
       const n = [sin(ph) * cos(th), cos(ph), sin(ph) * sin(th)];
@@ -178,7 +204,7 @@ class MB {
   /* toro: anello nel piano XZ locale; o.r rotazione, o.a0/o.a1 arco */
   tor(x, y, z, R, r, hex, o) {
     this._mat(hex, o); this._euler([x, y, z], o && o.r);
-    const a0 = (o && o.a0) || 0, a1 = o && o.a1 != null ? o.a1 : 2 * PI, NU = (o && o.seg) || 20, NV = 8;
+    const a0 = (o && o.a0) || 0, a1 = o && o.a1 != null ? o.a1 : 2 * PI, NU = MB.seg((o && o.seg) || 20), NV = MB.seg(8);
     const P = (i, j) => {
       const u = a0 + (a1 - a0) * i / NU, v = j / NV * 2 * PI;
       return [(R + r * cos(v)) * cos(u), r * sin(v), (R + r * cos(v)) * sin(u), cos(v) * cos(u), sin(v), cos(v) * sin(u)];
@@ -201,36 +227,94 @@ class MB {
     this._quad([u1, yb, 0], [u1, yb, -t], [u1, yt1, -t], [u1, yt1, 0], [1, 0, 0]);
     return this;
   }
+  static seg(n) { return round(n * MB.detail); }
 }
+MB.detail = 1;   // 1,6 in alta qualità: cilindri, sfere e anelli più lisci
 
 const VS = `#version 300 es
-layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNor; layout(location=2) in vec3 aCol; layout(location=3) in vec2 aMat;
+layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNor; layout(location=2) in vec3 aCol; layout(location=3) in vec3 aMat;
 uniform mat4 uVP, uModel, uLightVP;
-out vec3 vN, vW, vC; out vec2 vM; out vec4 vL;
-void main(){ vec4 w = uModel*vec4(aPos,1.0); vW = w.xyz; vN = mat3(uModel)*aNor; vC = aCol; vM = aMat; vL = uLightVP*w; gl_Position = uVP*w; }`;
-const FS = `#version 300 es
-precision highp float; precision highp sampler2DShadow;
-uniform sampler2DShadow uShadow; uniform vec3 uEye, uLightDir; uniform vec4 uTint; uniform float uShadowOn, uTexel;
-in vec3 vN, vW, vC; in vec2 vM; in vec4 vL; out vec4 o;
-float shadow(){
-  vec3 p = vL.xyz/vL.w*0.5+0.5;
+out vec3 vN, vW, vC, vM, vP, vNl; out vec4 vL;
+void main(){ vec4 w = uModel*vec4(aPos,1.0); vW = w.xyz; vN = mat3(uModel)*aNor; vC = aCol; vM = aMat; vP = aPos; vNl = aNor; vL = uLightVP*w; gl_Position = uVP*w; }`;
+/* parti comuni: ombre morbide, occlusione negli angoli della sala, tone mapping */
+const GLSL_COMMON = `
+uniform sampler2DShadow uShadow; uniform vec3 uEye, uLightDir; uniform vec4 uRoom; uniform float uShadowOn, uTexel, uSoft, uExposure;
+const vec2 PD[12] = vec2[12](vec2(-0.326,-0.406),vec2(-0.840,-0.074),vec2(-0.696,0.457),vec2(-0.203,0.621),vec2(0.962,-0.195),vec2(0.473,-0.480),vec2(0.519,0.767),vec2(0.185,-0.893),vec2(0.507,0.064),vec2(0.896,0.412),vec2(-0.322,-0.933),vec2(-0.792,-0.598));
+float shadowF(vec4 L, vec3 n){
+  vec3 p = L.xyz/L.w*0.5+0.5;
   if(p.x<0.0||p.x>1.0||p.y<0.0||p.y>1.0||p.z>1.0) return 1.0;
+  float b = 0.0004 + 0.0012*(1.0-clamp(dot(n,uLightDir),0.0,1.0));
+  float a = 6.2831*fract(52.9829*fract(dot(gl_FragCoord.xy, vec2(0.06711,0.00584))));
+  mat2 R = mat2(cos(a), sin(a), -sin(a), cos(a));
   float s = 0.0;
-  for(int i=-1;i<=1;i++) for(int j=-1;j<=1;j++) s += texture(uShadow, vec3(p.xy+vec2(float(i),float(j))*uTexel*1.6, p.z-0.0012));
-  return s/9.0;
+  for(int i=0;i<12;i++) s += texture(uShadow, vec3(p.xy + R*PD[i]*uTexel*uSoft, p.z-b));
+  return s/12.0;
+}
+float roomAO(vec3 P){
+  if(uRoom.x <= 0.0) return 1.0;
+  if(P.x < -0.02 || P.z < -0.02 || P.x > uRoom.x+0.02 || P.z > uRoom.y+0.02) return 1.0;
+  float a = 1.0, d;
+  d = P.y; if(d > 0.05) a *= mix(0.58, 1.0, smoothstep(0.0, 0.85, d));
+  d = P.z; if(d > 0.03) a *= mix(0.68, 1.0, smoothstep(0.0, 0.75, d));
+  d = uRoom.y - P.z; if(d > 0.03) a *= mix(0.68, 1.0, smoothstep(0.0, 0.75, d));
+  d = P.x; if(d > 0.03) a *= mix(0.68, 1.0, smoothstep(0.0, 0.75, d));
+  d = uRoom.x - P.x; if(d > 0.03) a *= mix(0.68, 1.0, smoothstep(0.0, 0.75, d));
+  return a;
+}
+vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
+const vec3 SUN = vec3(1.0,0.95,0.88)*3.1;
+const vec3 SKY_UP = vec3(0.80,0.86,0.97), SKY_DN = vec3(0.52,0.47,0.42);
+`;
+const FS = `#version 300 es
+precision highp float; precision highp sampler2DShadow; precision highp sampler2DArray;
+uniform sampler2DArray uDetail; uniform vec4 uTint; uniform float uTexOn;
+in vec3 vN, vW, vC, vM, vP, vNl; in vec4 vL; out vec4 o;
+${GLSL_COMMON}
+/* per materiale: metri per ripetizione della trama, intensità del colore, rilievo */
+const float SC[10] = float[10](1.2, 0.9, 0.42, 0.5, 0.6, 1.6, 1.4, 0.35, 0.7, 0.4);
+const float AM[10] = float[10](0.08, 0.42, 0.26, 0.30, 0.16, 0.36, 0.10, 0.26, 0.16, 0.45);
+const float BU[10] = float[10](0.10, 0.50, 1.00, 0.80, 0.30, 0.80, 0.45, 0.70, 0.35, 1.00);
+vec4 tri(vec3 P, vec3 N, float layer, float sc, bool vert){
+  vec3 w = pow(abs(N), vec3(6.0)); w /= (w.x+w.y+w.z+1e-5);
+  // legno: sulle facce verticali le venature corrono in verticale, lungo le doghe
+  vec2 px = vert ? P.yz : P.zy, pz = vert ? P.yx : P.xy;
+  return texture(uDetail, vec3(px/sc, layer))*w.x + texture(uDetail, vec3(P.xz/sc, layer))*w.y + texture(uDetail, vec3(pz/sc, layer))*w.z;
+}
+vec3 bump(vec3 N, vec3 P, float h, float k){
+  vec3 dpx = dFdx(P), dpy = dFdy(P); float dhx = dFdx(h), dhy = dFdy(h);
+  vec3 r1 = cross(dpy, N), r2 = cross(N, dpx); float det = dot(dpx, r1);
+  vec3 g = sign(det)*(dhx*r1 + dhy*r2);
+  return normalize(abs(det)*N - k*g);
 }
 void main(){
   vec3 n = normalize(vN);
-  float ndl = max(dot(n,uLightDir),0.0);
-  float sh = uShadowOn>0.5 ? shadow() : 1.0;
-  vec3 amb = mix(vec3(0.70,0.69,0.67), vec3(0.88,0.89,0.91), n.y*0.5+0.5);
-  vec3 c = vC*(amb + vec3(1.0,0.98,0.94)*0.46*ndl*sh);
-  vec3 v = normalize(uEye-vW); vec3 h = normalize(v+uLightDir);
-  c += pow(max(dot(n,h),0.0),48.0)*vM.y*0.55*(0.35+0.65*sh);
-  c += vM.y*0.10*pow(1.0-max(dot(n,v),0.0),3.0);
-  c = mix(c, vC, vM.x);
-  c = mix(c, uTint.rgb, uTint.a);
-  o = vec4(pow(clamp(c,0.0,1.0), vec3(1.0/2.2)), 1.0);
+  int mi = int(vM.z + 0.5);
+  vec3 alb = vC;
+  float rough = mix(0.86, 0.24, vM.y);
+  float metal = mi == 4 ? 0.85 : 0.0;
+  if(uTexOn > 0.5 && vM.x < 0.5){
+    vec4 t = tri(vP, normalize(vNl), float(mi), SC[mi], mi == 1);
+    alb *= clamp(1.0 + (t.r-0.5)*2.0*AM[mi], 0.25, 1.8);
+    rough = clamp(rough + (t.b-0.5)*0.35, 0.08, 1.0);
+    n = bump(n, vW, t.g, BU[mi]*0.0025);
+  }
+  vec3 V = normalize(uEye - vW), L = uLightDir, H = normalize(L + V);
+  float NdL = max(dot(n,L),0.0), NdV = max(dot(n,V),1e-3), NdH = max(dot(n,H),0.0), VdH = max(dot(V,H),0.0);
+  float sh = uShadowOn > 0.5 ? shadowF(vL, n) : 1.0;
+  float ao = roomAO(vW);
+  float a = rough*rough, a2 = a*a, dd = NdH*NdH*(a2-1.0)+1.0, D = a2/(3.14159*dd*dd);
+  float k = (rough+1.0)*(rough+1.0)/8.0, G = NdL/(NdL*(1.0-k)+k) * NdV/(NdV*(1.0-k)+k);
+  vec3 F0 = mix(vec3(0.04), alb, metal), F = F0 + (1.0-F0)*pow(1.0-VdH, 5.0);
+  vec3 kd = (1.0-F)*(1.0-metal);
+  vec3 direct = (kd*alb/3.14159 + D*G*F/(4.0*NdL*NdV+1e-4)) * SUN * NdL * sh;
+  vec3 amb = mix(SKY_DN, SKY_UP, n.y*0.5+0.5);
+  vec3 R = reflect(-V, n), env = mix(SKY_DN, SKY_UP*1.15, clamp(R.y*0.5+0.5, 0.0, 1.0));
+  vec3 Fa = F0 + (max(vec3(1.0-rough), F0)-F0)*pow(1.0-NdV, 5.0);
+  vec3 ambient = (kd*alb*amb*0.82 + Fa*env*(1.0-rough*0.75)*0.55) * ao;
+  vec3 c = direct + ambient;
+  c = mix(c, alb*1.7, vM.x);
+  c = mix(c, uTint.rgb*1.4, uTint.a);
+  o = vec4(pow(aces(c*uExposure), vec3(1.0/2.2)), 1.0);
 }`;
 const VS_SH = `#version 300 es
 layout(location=0) in vec3 aPos; uniform mat4 uLightVP, uModel;
@@ -245,36 +329,71 @@ out vec3 vN, vW; out vec2 vUV; out vec4 vL;
 void main(){ vec4 w = uModel*vec4(aPos,1.0); vW = w.xyz; vN = mat3(uModel)*aNor; vUV = aUV; vL = uLightVP*w; gl_Position = uVP*w; }`;
 const FS_T = `#version 300 es
 precision highp float; precision highp sampler2DShadow;
-uniform sampler2DShadow uShadow; uniform sampler2D uTex; uniform vec3 uEye, uLightDir; uniform float uShadowOn, uTexel, uAlpha;
+uniform sampler2D uTex; uniform float uAlpha;
 in vec3 vN, vW; in vec2 vUV; in vec4 vL; out vec4 o;
-float shadow(){
-  vec3 p = vL.xyz/vL.w*0.5+0.5;
-  if(p.x<0.0||p.x>1.0||p.y<0.0||p.y>1.0||p.z>1.0) return 1.0;
-  float s = 0.0;
-  for(int i=-1;i<=1;i++) for(int j=-1;j<=1;j++) s += texture(uShadow, vec3(p.xy+vec2(float(i),float(j))*uTexel*1.6, p.z-0.0015));
-  return s/9.0;
-}
+${GLSL_COMMON}
 void main(){
   vec4 t = texture(uTex, vUV);
   if(t.a < 0.01) discard;
   vec3 n = normalize(vN); if(!gl_FrontFacing) n = -n;
-  float ndl = max(dot(n,uLightDir),0.0);
-  float sh = uShadowOn>0.5 ? shadow() : 1.0;
-  vec3 amb = mix(vec3(0.70,0.69,0.67), vec3(0.88,0.89,0.91), n.y*0.5+0.5);
-  vec3 c = pow(t.rgb, vec3(2.2))*(amb + vec3(1.0,0.98,0.94)*0.46*ndl*sh);
-  o = vec4(pow(clamp(c,0.0,1.0), vec3(1.0/2.2)), t.a*uAlpha);
+  float NdL = max(dot(n,uLightDir),0.0);
+  float sh = uShadowOn>0.5 ? shadowF(vL, n) : 1.0;
+  vec3 alb = pow(t.rgb, vec3(2.2));
+  vec3 c = alb*(SUN*NdL*sh*0.96/3.14159 + mix(SKY_DN, SKY_UP, n.y*0.5+0.5)*0.82*roomAO(vW));
+  o = vec4(pow(aces(c*uExposure), vec3(1.0/2.2)), t.a*uAlpha);
 }`;
 
+/* ---- trame procedurali ripetibili (rumore periodico), una per materiale: R = colore, G = rilievo, B = ruvidità ---- */
+function _h(x, y, s) { let h = (x * 374761393 + y * 668265263 + s * 1442695041) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; }
+function vnoise(x, y, px, py, s) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const x0 = ((xi % px) + px) % px, y0 = ((yi % py) + py) % py, x1 = (x0 + 1) % px, y1 = (y0 + 1) % py;
+  const a = _h(x0, y0, s), b = _h(x1, y0, s), c = _h(x0, y1, s), d = _h(x1, y1, s);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function fbm(u, v, fx, fy, oct, s) { let a = 0.5, t = 0, n = 0, m = 1; for (let i = 0; i < oct; i++) { t += a * vnoise(u * fx * m, v * fy * m, fx * m, fy * m, s + i * 31); n += a; a *= 0.5; m *= 2; } return t / n; }
+function makeDetailLayer(layer, S, out) {
+  const T = 2 * PI;
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+    const u = i / S, v = j / S; let r = 0.5, g = 0.5, b = 0.5;
+    switch (layer) {
+      case 0: { const n = fbm(u, v, 8, 8, 3, 1); r = 0.5 + (n - 0.5) * 0.5; g = n; break; }
+      case 1: { // legno: anelli deformati e fibre fitte
+        const w = fbm(u, v, 3, 4, 3, 2), rings = 0.5 + 0.5 * sin((v * 14 + w * 1.1) * T), fib = vnoise(u * 5, v * 170, 5, 170, 3);
+        r = 0.5 + (rings - 0.5) * 0.3 + (fib - 0.5) * 0.42; g = 0.5 + (fib - 0.5) * 0.75 + (rings - 0.5) * 0.15; b = 0.5 + (rings - 0.5) * 0.3; break; }
+      case 2: { // tatami: righe sottili come la paglia intrecciata
+        const ridge = 0.5 + 0.5 * sin(v * 96 * T), straw = vnoise(u * 28, v * 96, 28, 96, 4), n = fbm(u, v, 6, 6, 2, 5);
+        r = 0.5 + (ridge - 0.5) * 0.22 + (straw - 0.5) * 0.25 + (n - 0.5) * 0.2; g = ridge * 0.65 + straw * 0.35; b = 0.5 + (ridge - 0.5) * 0.25; break; }
+      case 3: { // gomma: granuli con scaglie chiare
+        const n = fbm(u, v, 72, 72, 2, 6), cx = Math.floor(u * 140), cy = Math.floor(v * 140), fl = _h(cx, cy, 7) > 0.93 ? 1 : 0;
+        r = 0.5 + (n - 0.5) * 0.35 + fl * 0.32; g = n * 0.75 + fl * 0.25; b = 0.56; break; }
+      case 4: { const st = fbm(u, v, 3, 220, 2, 8); r = 0.5 + (st - 0.5) * 0.2; g = 0.5 + (st - 0.5) * 0.3; b = 0.5 + (st - 0.5) * 0.6; break; }
+      case 5: { // cemento: macchie e pori
+        const big = fbm(u, v, 5, 5, 4, 9), fine = vnoise(u * 90, v * 90, 90, 90, 10), pore = _h(Math.floor(u * 170), Math.floor(v * 170), 11) > 0.965 ? 1 : 0;
+        r = 0.5 + (big - 0.5) * 0.7 + (fine - 0.5) * 0.15 - pore * 0.25; g = big * 0.5 + fine * 0.5 - pore * 0.35; b = 0.5 + (big - 0.5) * 0.3; break; }
+      case 6: { const n = fbm(u, v, 14, 14, 3, 12), fine = vnoise(u * 120, v * 120, 120, 120, 13); r = 0.5 + (n - 0.5) * 0.3 + (fine - 0.5) * 0.08; g = n * 0.45 + fine * 0.55; break; }
+      case 7: { const n = fbm(u, v, 44, 44, 3, 14), cr = fbm(u, v, 6, 6, 2, 15); r = 0.5 + (n - 0.5) * 0.35 + (cr - 0.5) * 0.2; g = n; b = 0.5 + (n - 0.5) * 0.3; break; }
+      case 8: { const n = fbm(u, v, 18, 18, 3, 16), f = Math.max(vnoise(u * 7, v * 110, 7, 110, 17), vnoise(u * 110, v * 7, 110, 7, 18)); r = 0.5 + (n - 0.5) * 0.25 + (f - 0.5) * 0.18; g = n * 0.6 + f * 0.4; break; }
+      case 9: { const bl = vnoise(u * 170, v * 14, 170, 14, 19), n = fbm(u, v, 16, 16, 2, 20); r = 0.5 + (bl - 0.5) * 0.65 + (n - 0.5) * 0.3; g = bl; b = 0.6; break; }
+    }
+    const k = (j * S + i) * 4;
+    out[k] = clamp01(r) * 255; out[k + 1] = clamp01(g) * 255; out[k + 2] = clamp01(b) * 255; out[k + 3] = 255;
+  }
+}
+const clamp01 = x => x < 0 ? 0 : x > 1 ? 1 : x;
+
 class Engine {
-  constructor(canvas) {
+  constructor(canvas, opts = {}) {
     const gl = canvas.getContext('webgl2', { antialias: true, alpha: true, premultipliedAlpha: true });
     if (!gl) throw new Error('WebGL2 non disponibile');
-    this.gl = gl; this.canvas = canvas;
+    this.gl = gl; this.canvas = canvas; this.hq = opts.hq !== false;
+    this.exposure = 0.9; this.room = [0, 0, 0, 0]; this.texOn = 0;
     this.prog = this._program(VS, FS); this.progSh = this._program(VS_SH, FS_SH);
-    this.u = {}; for (const n of ['uVP', 'uModel', 'uLightVP', 'uShadow', 'uEye', 'uLightDir', 'uTint', 'uShadowOn', 'uTexel']) this.u[n] = gl.getUniformLocation(this.prog, n);
+    const COMMON_U = ['uShadow', 'uEye', 'uLightDir', 'uRoom', 'uShadowOn', 'uTexel', 'uSoft', 'uExposure'];
+    this.u = {}; for (const n of ['uVP', 'uModel', 'uLightVP', 'uTint', 'uDetail', 'uTexOn', ...COMMON_U]) this.u[n] = gl.getUniformLocation(this.prog, n);
     this.us = { uLightVP: gl.getUniformLocation(this.progSh, 'uLightVP'), uModel: gl.getUniformLocation(this.progSh, 'uModel') };
     this.progT = this._program(VS_T, FS_T);
-    this.ut = {}; for (const n of ['uVP', 'uModel', 'uLightVP', 'uShadow', 'uTex', 'uEye', 'uLightDir', 'uShadowOn', 'uTexel', 'uAlpha']) this.ut[n] = gl.getUniformLocation(this.progT, n);
+    this.ut = {}; for (const n of ['uVP', 'uModel', 'uLightVP', 'uTex', 'uAlpha', ...COMMON_U]) this.ut[n] = gl.getUniformLocation(this.progT, n);
     /* rettangolo unitario centrato, normale +Z, coordinate immagine (v=1 in alto) */
     const q = new Float32Array([-0.5, -0.5, 0, 0, 0, 1, 0, 0, 0.5, -0.5, 0, 0, 0, 1, 1, 0, 0.5, 0.5, 0, 0, 0, 1, 1, 1,
       -0.5, -0.5, 0, 0, 0, 1, 0, 0, 0.5, 0.5, 0, 0, 0, 1, 1, 1, -0.5, 0.5, 0, 0, 0, 1, 0, 1]);
@@ -285,7 +404,7 @@ class Engine {
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
     gl.bindVertexArray(null);
     this.aniso = gl.getExtension('EXT_texture_filter_anisotropic');
-    this.SM = 2048;
+    this.SM = this.hq && gl.getParameter(gl.MAX_TEXTURE_SIZE) >= 4096 ? 4096 : 2048; this.soft = 2;
     this.shTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.shTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, this.SM, this.SM, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
@@ -300,6 +419,36 @@ class Engine {
     this.lightDir = V3.norm([0.22, 1, 0.3]);
     this.lightVP = new Float32Array(16); this.lightVP[0] = this.lightVP[5] = this.lightVP[10] = this.lightVP[15] = 1;
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+    /* trame dei materiali: array di texture, generato a pezzi dopo l'avvio per non bloccare la pagina */
+    this.detail = gl.createTexture();
+    this.detailSize = this.hq ? (opts.small ? 256 : 512) : 0;
+    {
+      const S = this.detailSize || 4, levels = Math.floor(Math.log2(S)) + 1;
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.detail);
+      gl.texStorage3D(gl.TEXTURE_2D_ARRAY, levels, gl.RGBA8, S, S, MAT_COUNT);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      if (this.aniso) gl.texParameterf(gl.TEXTURE_2D_ARRAY, this.aniso.TEXTURE_MAX_ANISOTROPY_EXT, min(8, gl.getParameter(this.aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+      if (!this.detailSize) {   // grafica semplice: trama neutra minuscola, così la texture è sempre completa
+        gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, 4, 4, MAT_COUNT, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4 * 4 * 4 * MAT_COUNT).fill(128));
+        gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+      }
+    }
+  }
+  /* genera le trame un materiale alla volta; onReady quando sono tutte pronte */
+  buildDetail(onReady) {
+    const S = this.detailSize; if (!S) return;
+    const gl = this.gl, buf = new Uint8Array(S * S * 4);
+    let layer = 0;
+    const step = () => {
+      makeDetailLayer(layer, S, buf);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.detail);
+      gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, S, S, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      if (++layer < MAT_COUNT) { setTimeout(step, 0); return; }
+      gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+      this.texOn = 1; if (onReady) onReady();
+    };
+    setTimeout(step, 30);
   }
   _program(vs, fs) {
     const gl = this.gl, p = gl.createProgram();
@@ -316,11 +465,11 @@ class Engine {
     const gl = this.gl, vao = gl.createVertexArray(), vbo = gl.createBuffer();
     gl.bindVertexArray(vao); gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mb.a), gl.STATIC_DRAW);
-    const S = 44;
+    const S = 48;
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, S, 0);
     gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, S, 12);
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, S, 24);
-    gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 2, gl.FLOAT, false, S, 36);
+    gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 3, gl.FLOAT, false, S, 36);
     gl.bindVertexArray(null);
     return { vao, vbo, n: mb.count };
   }
@@ -349,9 +498,19 @@ class Engine {
       for (let k = 0; k < 3; k++) { lo[k] = min(lo[k], p[k]); hi[k] = max(hi[k], p[k]); }
     }
     this.lightVP = M4.mul(M4.ortho(lo[0] - 0.2, hi[0] + 0.2, lo[1] - 0.2, hi[1] + 0.2, -hi[2] - 1, -lo[2] + 1), view);
+    // penombra di circa 2,5 cm, qualunque sia la risoluzione della mappa delle ombre
+    const texelWorld = max(hi[0] - lo[0], hi[1] - lo[1]) / this.SM;
+    this.soft = min(10, max(1.5, 0.025 / texelWorld));
   }
   /* draws: [{mesh, m, tint:[r,g,b,a]|null, cast}] */
-  render({ draws, view, proj, eye, clear, shadows, decals }) {
+  _common(u, eye, shadows, room) {
+    const gl = this.gl;
+    gl.uniformMatrix4fv(u.uLightVP, false, this.lightVP);
+    gl.uniform3fv(u.uEye, eye); gl.uniform3fv(u.uLightDir, this.lightDir);
+    gl.uniform1f(u.uShadowOn, shadows ? 1 : 0); gl.uniform1f(u.uTexel, 1 / this.SM); gl.uniform1f(u.uSoft, this.soft); gl.uniform1f(u.uExposure, this.exposure);
+    gl.uniform4fv(u.uRoom, room || [0, 0, 0, 0]); gl.uniform1i(u.uShadow, 0);
+  }
+  render({ draws, view, proj, eye, clear, shadows, decals, room }) {
     const gl = this.gl;
     if (shadows) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.shFbo);
@@ -368,10 +527,11 @@ class Engine {
     gl.clearColor(clear[0], clear[1], clear[2], clear[3]); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.useProgram(this.prog);
     gl.uniformMatrix4fv(this.u.uVP, false, M4.mul(proj, view));
-    gl.uniformMatrix4fv(this.u.uLightVP, false, this.lightVP);
-    gl.uniform3fv(this.u.uEye, eye); gl.uniform3fv(this.u.uLightDir, this.lightDir);
-    gl.uniform1f(this.u.uShadowOn, shadows ? 1 : 0); gl.uniform1f(this.u.uTexel, 1 / this.SM);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.shTex); gl.uniform1i(this.u.uShadow, 0);
+    this._common(this.u, eye, shadows, room);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.shTex);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.detail); gl.uniform1i(this.u.uDetail, 2);
+    gl.uniform1f(this.u.uTexOn, this.texOn);
+    gl.activeTexture(gl.TEXTURE0);
     for (const d of draws) if (d.mesh.n) {
       gl.uniformMatrix4fv(this.u.uModel, false, d.m);
       const t = d.tint; gl.uniform4f(this.u.uTint, t ? t[0] : 0, t ? t[1] : 0, t ? t[2] : 0, t ? t[3] : 0);
@@ -380,10 +540,8 @@ class Engine {
     if (decals && decals.length) {
       gl.useProgram(this.progT);
       gl.uniformMatrix4fv(this.ut.uVP, false, M4.mul(proj, view));
-      gl.uniformMatrix4fv(this.ut.uLightVP, false, this.lightVP);
-      gl.uniform3fv(this.ut.uEye, eye); gl.uniform3fv(this.ut.uLightDir, this.lightDir);
-      gl.uniform1f(this.ut.uShadowOn, shadows ? 1 : 0); gl.uniform1f(this.ut.uTexel, 1 / this.SM);
-      gl.uniform1i(this.ut.uShadow, 0); gl.uniform1i(this.ut.uTex, 1);
+      this._common(this.ut, eye, shadows, room);
+      gl.uniform1i(this.ut.uTex, 1);
       gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-2, -4); gl.depthMask(false);
       gl.bindVertexArray(this.quad); gl.activeTexture(gl.TEXTURE1);

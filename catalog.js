@@ -21,8 +21,8 @@ function dumbbell(b, x, y, z, r) {
   for (const s of [-1, 1]) b.cyl(x, y, z + s * (L / 2 - t / 2), r, t, RB, { axis: 'z', seg: 6 });
 }
 function kettle(b, x, y, z, r, hex) {
-  b.sph(x, y + r * 0.96, z, r, hex, { s: [1, 0.96, 1], g: 0.35 });
-  b.cyl(x, y + 0.012, z, r * 0.62, 0.024, hex);
+  b.sph(x, y + r * 0.96, z, r, hex, { s: [1, 0.96, 1], g: 0.35, m: 0 });
+  b.cyl(x, y + 0.012, z, r * 0.62, 0.024, hex, { m: 0 });
   b.tor(x, y + r * 1.68, z, r * 0.6, r * 0.16, K, { r: [-PI / 2, 0, 0], a0: 0, a1: PI, g: 0.4, seg: 12 });
 }
 function plate(b, x, y, z, r, t, hex, axis) {
@@ -537,15 +537,15 @@ const CATALOG = [
 
 /* Pavimentazioni: spessore in metri */
 const FLOORS = [
-  { id: 'tb', name: 'Tatami blu', th: 0.04, col: '#2b5ea6' },
-  { id: 'tr', name: 'Tatami rosso', th: 0.04, col: '#c23a30' },
-  { id: 'tn', name: 'Tatami nero', th: 0.04, col: '#2a2c30' },
-  { id: 'tg', name: 'Tatami grigio', th: 0.04, col: '#8a9098' },
-  { id: 'tv', name: 'Tatami verde', th: 0.04, col: '#3d8a4f' },
-  { id: 'ty', name: 'Tatami giallo', th: 0.04, col: '#dcb538' },
-  { id: 'g4', name: 'Gomma antitrauma 4 cm', th: 0.04, col: '#1c1d20' },
-  { id: 'g2', name: 'Gomma antitrauma 2 cm', th: 0.02, col: '#2c2e33' },
-  { id: 'er', name: 'Erba sintetica', th: 0.02, col: '#3f7d36' },
-  { id: 'lg', name: 'Pedana in legno', th: 0.04, col: '#bd9460' },
-  { id: 'ce', name: 'Cemento a vista', th: 0, col: '#9c9a95' },
+  { id: 'tb', m: 2, name: 'Tatami blu', th: 0.04, col: '#2b5ea6' },
+  { id: 'tr', m: 2, name: 'Tatami rosso', th: 0.04, col: '#c23a30' },
+  { id: 'tn', m: 2, name: 'Tatami nero', th: 0.04, col: '#2a2c30' },
+  { id: 'tg', m: 2, name: 'Tatami grigio', th: 0.04, col: '#8a9098' },
+  { id: 'tv', m: 2, name: 'Tatami verde', th: 0.04, col: '#3d8a4f' },
+  { id: 'ty', m: 2, name: 'Tatami giallo', th: 0.04, col: '#dcb538' },
+  { id: 'g4', m: 3, name: 'Gomma antitrauma 4 cm', th: 0.04, col: '#1c1d20' },
+  { id: 'g2', m: 3, name: 'Gomma antitrauma 2 cm', th: 0.02, col: '#2c2e33' },
+  { id: 'er', m: 9, name: 'Erba sintetica', th: 0.02, col: '#3f7d36' },
+  { id: 'lg', m: 1, name: 'Pedana in legno', th: 0.04, col: '#bd9460' },
+  { id: 'ce', m: 5, name: 'Cemento a vista', th: 0, col: '#9c9a95' },
 ];

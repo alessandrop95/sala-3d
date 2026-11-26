@@ -7,7 +7,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
   /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
-  const APP_VER = '2026-11-26c';
+  const APP_VER = '2026-11-26d';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
@@ -15,7 +15,11 @@
 
   const canvas = $('#gl'), stage = $('#stage');
   let eng;
-  try { eng = new Engine(canvas); }
+  /* qualità grafica: alta (materiali, ombre morbide, geometrie più lisce) o semplice per dispositivi lenti */
+  let gfx = 'hq';
+  try { gfx = localStorage.getItem('sala3d.gfx') || 'hq'; } catch (e) { gfx = 'hq'; }
+  MB.detail = gfx === 'hq' ? 1.6 : 1;
+  try { eng = new Engine(canvas, { hq: gfx === 'hq', small: window.matchMedia('(max-width: 859px)').matches }); }
   catch (e) {
     $('#fatal').hidden = false;
     $('#fatal').textContent = 'Questo dispositivo non riesce ad avviare la grafica 3D (WebGL2). Prova con un browser aggiornato.';
@@ -357,6 +361,7 @@
     const n = parseInt(hex.slice(1), 16), c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => clamp(round(v * f), 0, 255));
     return '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
   }
+  const WM = { m: MAT.PLASTER }, MM = { m: MAT.METAL, g: 0.35 };
   function buildWall(key) {
     const wc = (S.room.cols && S.room.cols[key]) || WALL_COL;
     const wi = wallInfo(key), mb = new MB(), ext = key === 'A' || key === 'C' ? T : 0;
@@ -371,8 +376,8 @@
       if (b - a < 1e-4) continue;
       const cov = ops.filter(o => o.u <= a + 1e-4 && o.u + o.w >= b - 1e-4).sort((p, q) => p.sill - q.sill);
       let y = 0;
-      for (const o of cov) { if (o.sill > y + 1e-4) mb.prism(a, b, y, o.sill, o.sill, T, wc); y = max(y, o.sill + o.h); }
-      if (hAt(a) > y + 1e-4 || hAt(b) > y + 1e-4) mb.prism(a, b, y, max(hAt(a), y), max(hAt(b), y), T, wc);
+      for (const o of cov) { if (o.sill > y + 1e-4) mb.prism(a, b, y, o.sill, o.sill, T, wc, WM); y = max(y, o.sill + o.h); }
+      if (hAt(a) > y + 1e-4 || hAt(b) > y + 1e-4) mb.prism(a, b, y, max(hAt(a), y), max(hAt(b), y), T, wc, WM);
     }
     const z = -T / 2;
     for (const o of ops) {
@@ -384,17 +389,17 @@
         mb.box(cx, o.h + fw / 2, z, o.w, fw, T + 0.02, '#6b4f33');
         mb.box(cx, 0.006, z, o.w, 0.012, T + 0.02, '#8a6a42');
       } else if (o.t === 'door') {
-        mb.box(cx, cy, z, o.w, o.h, 0.06, '#8e9499', { g: 0.25 });
+        mb.box(cx, cy, z, o.w, o.h, 0.06, '#8e9499', MM);
         const n = max(1, round(o.w / 1.0));
-        for (let i = 1; i < n; i++) mb.box(o.u + i * o.w / n, cy, z + 0.035, 0.016, o.h, 0.012, '#5f646a');
-        mb.box(cx, o.sill + o.h * 0.52, z + 0.035, o.w, 0.03, 0.012, '#787e84');
-        mb.box(cx, o.sill + 0.06, z + 0.035, o.w, 0.12, 0.012, '#787e84');
+        for (let i = 1; i < n; i++) mb.box(o.u + i * o.w / n, cy, z + 0.035, 0.016, o.h, 0.012, '#5f646a', MM);
+        mb.box(cx, o.sill + o.h * 0.52, z + 0.035, o.w, 0.03, 0.012, '#787e84', MM);
+        mb.box(cx, o.sill + 0.06, z + 0.035, o.w, 0.12, 0.012, '#787e84', MM);
       } else {
         mb.box(cx, o.sill + o.h * 0.7, z, o.w, o.h * 0.6, 0.02, '#f2f7fb', { e: 1 });
         mb.box(cx, o.sill + o.h * 0.2, z, o.w, o.h * 0.4, 0.02, '#dfe8ea', { e: 1 });
         const fc = '#5a5f65', nv = max(1, round(o.w / 0.5)), nh = max(1, round(o.h / 0.55));
-        for (let i = 0; i <= nv; i++) mb.box(o.u + i * o.w / nv, cy, z, i === 0 || i === nv ? 0.05 : 0.022, o.h, 0.06, fc);
-        for (let j = 0; j <= nh; j++) mb.box(cx, o.sill + j * o.h / nh, z, o.w, j === 0 || j === nh ? 0.05 : 0.022, 0.06, fc);
+        for (let i = 0; i <= nv; i++) mb.box(o.u + i * o.w / nv, cy, z, i === 0 || i === nv ? 0.05 : 0.022, o.h, 0.06, fc, MM);
+        for (let j = 0; j <= nh; j++) mb.box(cx, o.sill + j * o.h / nh, z, o.w, j === 0 || j === nh ? 0.05 : 0.022, 0.06, fc, MM);
       }
     }
     mb.frame(null);
@@ -402,9 +407,9 @@
   }
   function buildRoof() {
     const r = S.room, W = r.W, D = r.D, mb = new MB(), t = 0.08, ov = 0.3, sl = (r.hHigh - r.hLow) / D;
-    mb.beam([W / 2, r.hLow - ov * sl + t / 2, -ov], [W / 2, r.hHigh + ov * sl + t / 2, D + ov], W + 2 * ov, t, '#e7eaea');
-    for (let x = 1; x < W - 0.05; x += 1) mb.beam([x, r.hLow - 0.003, 0], [x, r.hHigh - 0.003, D], 0.014, 0.004, '#c2c8c8');
-    const n = max(2, round(D / 3)), TC = '#b4babf', dp = 0.32, G = { g: 0.5 };
+    mb.beam([W / 2, r.hLow - ov * sl + t / 2, -ov], [W / 2, r.hHigh + ov * sl + t / 2, D + ov], W + 2 * ov, t, '#e7eaea', MM);
+    for (let x = 1; x < W - 0.05; x += 1) mb.beam([x, r.hLow - 0.003, 0], [x, r.hHigh - 0.003, D], 0.014, 0.004, '#c2c8c8', MM);
+    const n = max(2, round(D / 3)), TC = '#b4babf', dp = 0.32, G = { g: 0.5, m: MAT.METAL };
     for (let i = 0; i <= n; i++) {
       const z = clamp(D * i / n, 0.1, D - 0.1), yT = roofH(z) - 0.04;
       mb.box(W / 2, yT, z, W, 0.045, 0.045, TC, G); mb.box(W / 2, yT - dp, z, W, 0.045, 0.045, TC, G);
@@ -418,7 +423,7 @@
   function buildRoom() {
     for (const k of ['base', 'A', 'B', 'C', 'D', 'roof']) { eng.free(R[k]); R[k] = null; }
     const r = S.room, mb = new MB();
-    mb.box(r.W / 2, -0.06, r.D / 2, r.W + 2 * T, 0.12, r.D + 2 * T, '#9c9a95');
+    mb.box(r.W / 2, -0.06, r.D / 2, r.W + 2 * T, 0.12, r.D + 2 * T, '#9c9a95', { m: MAT.CONCRETE });
     R.base = eng.mesh(mb);
     for (const k of WALL_KEYS) R[k] = buildWall(k);
     R.roof = buildRoof();
@@ -432,8 +437,8 @@
       if (!f || !f.th) continue;
       const x0 = i, x1 = min(i + 1, W), z0 = j, z1 = min(j + 1, D);
       if (x1 - x0 < 0.02 || z1 - z0 < 0.02) continue;
-      mb.box((x0 + x1) / 2, 0.001, (z0 + z1) / 2, x1 - x0, 0.002, z1 - z0, shade(f.col, 0.45));
-      mb.box((x0 + x1) / 2, f.th / 2, (z0 + z1) / 2, x1 - x0 - 2 * g, f.th, z1 - z0 - 2 * g, f.col);
+      mb.box((x0 + x1) / 2, 0.001, (z0 + z1) / 2, x1 - x0, 0.002, z1 - z0, shade(f.col, 0.45), { m: f.m || 0 });
+      mb.box((x0 + x1) / 2, f.th / 2, (z0 + z1) / 2, x1 - x0 - 2 * g, f.th, z1 - z0 - 2 * g, f.col, { m: f.m || 0 });
     }
     R.floor = eng.mesh(mb); floorDirty = false;
   }
@@ -582,6 +587,7 @@
     decals.length = 0; const live = new Set();
     for (const it of S.items) {
       const d = defOf(it), y = itemY(it);
+      if (d.wall && !shown[it.wall] && it.k !== DECAL) continue;   // oggetti appesi a una parete nascosta: si nascondono con lei
       if (it.k === DECAL) {
         live.add(it.id);
         const tex = getDecalTex(it);
@@ -618,7 +624,7 @@
   function draw() {
     const c = camMats();
     const draws = buildDraws(c.eye);
-    eng.render({ draws, view: c.view, proj: c.proj, eye: c.eye, clear: clearCol, shadows: true, decals });
+    eng.render({ draws, view: c.view, proj: c.proj, eye: c.eye, clear: clearCol, shadows: true, decals, room: [S.room.W, S.room.D, 0, 0] });
     lastVP = M4.mul(c.proj, c.view);
     placeWallLabels(); placeMeasLabel();
   }
@@ -1383,6 +1389,7 @@
   $('#menu').addEventListener('click', e => {
     const b = e.target.closest('[data-m]'); if (!b) return; closeMenu();
     const m = b.dataset.m;
+    if (m === 'gfx') { try { localStorage.setItem('sala3d.gfx', gfx === 'hq' ? 'low' : 'hq'); } catch (e) { /* senza archivio resta com'è */ } doUpdate(); return; }
     if (m === 'share') shareLink(); else if (m === 'copy') copyRoom(); else if (m === 'export') exportFile(); else if (m === 'import') openImport(); else if (m === 'photo') savePhoto();
     else if (m === 'clear') { pushHist(); S.items = []; S.sel = null; changed(); toast('Sala svuotata. Con Annulla torni indietro.'); }
     else if (m === 'example') { pushHist(); restore(exampleProject()); afterBigChange(); setView(S.view, false); }
@@ -1531,6 +1538,8 @@
   setTab('cat'); if (isNarrow()) setPanelOpen(false);
   setView('orbit');
   requestAnimationFrame(frame);
+  $('[data-m="gfx"]').textContent = gfx === 'hq' ? 'Grafica semplice (dispositivi lenti)' : 'Grafica realistica';
+  eng.buildDetail(() => { dirty = true; thumbs.clear(); renderCatalog(); });
   if (!CFG.url) { setNet(false); toast('Server non configurato: la sala resta solo su questo dispositivo.', 7000); }
   else {
     if (!loaded && !isNew) $('#veil').hidden = false;              // link ricevuto: si aspetta la sala vera prima di toccare
