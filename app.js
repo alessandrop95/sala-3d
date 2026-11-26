@@ -7,7 +7,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
   /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
-  const APP_VER = '2026-11-26o';
+  const APP_VER = '2026-11-26p';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
@@ -855,7 +855,7 @@
     const night = lightMode === 'night';
     if (night) {
       // luce di rimbalzo calda proporzionale alla potenza dei LED nella sala
-      const sum = sceneLights.reduce((a, l) => [a[0] + l.c[0], a[1] + l.c[1], a[2] + l.c[2]], [0, 0, 0]), k = 0.55 / max(20, S.room.W * S.room.D) * 6;
+      const sum = sceneLights.reduce((a, l) => [a[0] + l.c[0], a[1] + l.c[1], a[2] + l.c[2]], [0, 0, 0]), k = 0.2 / max(20, S.room.W * S.room.D) * 6;
       eng.setLighting({ sun: [0.05, 0.06, 0.1], skyUp: [0.03 + sum[0] * k * 0.8, 0.035 + sum[1] * k * 0.8, 0.055 + sum[2] * k * 0.8], skyDn: [0.02 + sum[0] * k, 0.02 + sum[1] * k, 0.025 + sum[2] * k], lights: mergedLights() });
     } else eng.setLighting({});
     eng.render({ draws, view: c.view, proj: c.proj, eye: c.eye, clear: night ? NIGHT_BG : clearCol, shadows: true, decals, room: [S.room.W, S.room.D, 0, 0] });
