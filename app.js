@@ -564,10 +564,9 @@
     if (floorDirty) buildFloor();
     dr.push({ mesh: R.base, m: IDENT }, { mesh: R.floor, m: IDENT });
     const walk = S.view === 'walk';
-    if (walk || eye[2] > 0) dr.push({ mesh: R.A, m: IDENT });
-    if (walk || eye[0] < r.W) dr.push({ mesh: R.B, m: IDENT });
-    if (walk || eye[2] < r.D) dr.push({ mesh: R.C, m: IDENT });
-    if (walk || eye[0] > 0) dr.push({ mesh: R.D, m: IDENT });
+    // una parete si nasconde quando la vista è dietro di lei; con lei spariscono anche le decorazioni appese
+    const shown = { A: walk || eye[2] > 0, B: walk || eye[0] < r.W, C: walk || eye[2] < r.D, D: walk || eye[0] > 0 };
+    for (const k of WALL_KEYS) if (shown[k]) dr.push({ mesh: R[k], m: IDENT });
     if (S.showRoof && S.view !== 'plan' && (walk || eye[1] < roofH(eye[2]))) dr.push({ mesh: R.roof, m: IDENT });
     const ov = overlapsOfSel();
     decals.length = 0; const live = new Set();
@@ -576,7 +575,7 @@
       if (it.k === DECAL) {
         live.add(it.id);
         const tex = getDecalTex(it);
-        if (tex) decals.push({ tex, m: decalMatrix(it, d), alpha: 1 });
+        if (tex && (!d.wall || shown[it.wall])) decals.push({ tex, m: decalMatrix(it, d), alpha: 1 });
         if (it.id === S.sel && d.wall) {
           const c = cos(it.rot), s = sin(it.rot), t = 0.025, n = 0.012, yc = it.elev + d.h / 2;
           const bar = (ox, oy, sx, sy) => dr.push({ mesh: R.outline, m: M4.compose(it.x + c * ox + s * n, yc + oy, it.z - s * ox + c * n, it.rot, sx, sy, 0.006) });
