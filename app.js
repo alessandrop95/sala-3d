@@ -7,7 +7,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
   /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
-  const APP_VER = '2026-11-26k';
+  const APP_VER = '2026-11-26l';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
@@ -538,9 +538,12 @@
     if (t <= 0 || t > 500) return null;
     return [ray.o[0] + ray.d[0] * t, y, ray.o[2] + ray.d[2] * t];
   }
+  /* in Interno il karateka guidato prende il posto della figura di scala, che non si vede */
+  function hiddenInWalk(it) { return S.view === 'walk' && it.k === 'persona'; }
   function pickItem(px, py) {
     const ray = rayAt(px, py); let best = null, flat = null;
     for (const it of S.items) {
+      if (hiddenInWalk(it)) continue;
       const d = defOf(it), c = cos(it.rot), s = sin(it.rot), y0 = itemY(it);
       const ox = ray.o[0] - it.x, oy = ray.o[1] - y0, oz = ray.o[2] - it.z;
       const lo = [c * ox - s * oz, oy, s * ox + c * oz], ld = [c * ray.d[0] - s * ray.d[2], ray.d[1], s * ray.d[0] + c * ray.d[2]];
@@ -631,6 +634,7 @@
     const ov = overlapsOfSel();
     decals.length = 0; const live = new Set();
     for (const it of S.items) {
+      if (hiddenInWalk(it)) continue;
       const d = defOf(it), y = itemY(it);
       if (d.wall && !shown[it.wall] && it.k !== DECAL) continue;   // oggetti appesi a una parete nascosta: si nascondono con lei
       if (it.k === DECAL) {
