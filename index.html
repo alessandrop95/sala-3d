@@ -181,6 +181,17 @@ button.sb-ds:hover { border-color: var(--muted); }
 .help { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; font-size: 13.5px; }
 .help b { display: block; }
 
+/* camminare (vista Interno): pulsanti sui dispositivi touch */
+#walkpad { position: absolute; left: 12px; bottom: calc(12px + var(--selh, 0px)); display: none; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(2, 52px); gap: 6px; z-index: 4;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+@media (pointer: coarse) { body.view-walk #walkpad { display: grid; } }
+#walkpad button { border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 82%, transparent); border-radius: 12px; display: grid; place-items: center; padding: 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); touch-action: none; color: var(--ink); }
+#walkpad button svg { width: 24px; height: 24px; fill: currentColor; }
+#walkpad button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+@media (pointer: coarse) { body.view-walk #selbar { left: calc(12px + 3 * 52px + 12px + 6px); } }
+@media (pointer: coarse) and (max-width: 520px) { body.view-walk #selbar { left: 12px; } }
+
 /* guardare / modificare */
 .seg #btn-edit { color: var(--accent); }
 .seg #btn-edit[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
@@ -309,15 +320,23 @@ body:not(.editing) .view-note { display: block; }
     <div id="update" role="status" hidden><span id="update-txt"></span><button type="button" id="btn-update">Aggiorna</button></div>
     <div id="toast" role="status" hidden></div>
     <div id="selbar" hidden></div>
+    <div id="walkpad" aria-label="Cammina">
+      <button type="button" data-mv="l" class="wp-l" aria-label="Girati a sinistra"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4L4 9l6 5v-3.2c4.2 0 7 1.6 8.2 5.2.2-5.6-3-8.8-8.2-9V4z"/></svg></button>
+      <button type="button" data-mv="f" class="wp-f" aria-label="Avanti"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l7 8h-4.5v6h-5v-6H5z" transform="rotate(0 12 12)"/></svg></button>
+      <button type="button" data-mv="r" class="wp-r" aria-label="Girati a destra"><svg viewBox="0 0 24 24" aria-hidden="true" style="transform:scaleX(-1)"><path d="M10 4L4 9l6 5v-3.2c4.2 0 7 1.6 8.2 5.2.2-5.6-3-8.8-8.2-9V4z"/></svg></button>
+      <button type="button" data-mv="sl" class="wp-sl" aria-label="Passo a sinistra"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l7 8h-4.5v6h-5v-6H5z" transform="rotate(-90 12 12)"/></svg></button>
+      <button type="button" data-mv="b" class="wp-b" aria-label="Indietro"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l7 8h-4.5v6h-5v-6H5z" transform="rotate(180 12 12)"/></svg></button>
+      <button type="button" data-mv="sr" class="wp-sr" aria-label="Passo a destra"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l7 8h-4.5v6h-5v-6H5z" transform="rotate(90 12 12)"/></svg></button>
+    </div>
     <div id="veil" hidden>Apro la sala…</div>
     <div id="fatal" hidden></div>
   </main>
 </div>
 <div id="modal" hidden><div id="modal-body" role="dialog" aria-modal="true"></div></div>
 <input type="file" id="file" accept=".json,application/json" hidden>
-<script src="config.js?v=2026-11-26i"></script>
-<script src="engine.js?v=2026-11-26i"></script>
-<script src="catalog.js?v=2026-11-26i"></script>
-<script src="app.js?v=2026-11-26i"></script>
+<script src="config.js?v=2026-11-26j"></script>
+<script src="engine.js?v=2026-11-26j"></script>
+<script src="catalog.js?v=2026-11-26j"></script>
+<script src="app.js?v=2026-11-26j"></script>
 </body>
 </html>

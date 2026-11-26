@@ -7,7 +7,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
   /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
-  const APP_VER = '2026-11-26i';
+  const APP_VER = '2026-11-26j';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
@@ -496,6 +496,7 @@
     }
     return { eye, view: M4.lookAt(eye, cam.target, [0, 1, 0]), proj: M4.persp(FOV_O, aspect(), 0.1, 400) };
   }
+  var walkHint = false;
   function setView(v, keep) {
     S.view = v;
     const r = S.room, a = aspect(), th = tan(FOV_O / 2);
@@ -510,6 +511,9 @@
       cam.walk = [r.W * 0.55, 1.65, r.D * 0.82]; cam.wyaw = -0.12; cam.wpitch = -0.04;
     }
     for (const b of document.querySelectorAll('#views button')) b.setAttribute('aria-pressed', b.dataset.view === v ? 'true' : 'false');
+    document.body.classList.toggle('view-walk', v === 'walk');
+    if (v !== 'walk') { walkIn.keys.clear(); walkIn.pad.clear(); }
+    else if (!walkHint) { walkHint = true; setTimeout(() => toast(window.matchMedia('(pointer: coarse)').matches ? 'Usa le frecce in basso per camminare e girarti. Trascina per guardarti intorno.' : 'Cammina con W A S D o con le frecce (← → per girarti). Maiuscolo per andare più veloce.', 5000), 50); }
     cam.auto = true; dirty = true;
   }
   function getVP() { const c = camMats(); return M4.mul(c.proj, c.view); }
@@ -699,7 +703,28 @@
       flyTo({ target: c, dist: clamp(r / sin(FOV_O / 2) * 1.7, 2.6, 40), pitch: clamp(cam.pitch, 0.35, 0.95) });
     }
   }
-  function frame(now) { if (anim) animStep(now || performance.now()); if (dirty) { dirty = false; draw(); } requestAnimationFrame(frame); }
+  /* camminare nella vista Interno: tastiera (WASD, frecce, Q/E) e pulsanti sullo schermo */
+  const walkIn = { keys: new Set(), pad: new Set(), t: 0 };
+  const WALK_KEYS = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'sl', KeyD: 'sr', ArrowLeft: 'l', ArrowRight: 'r', KeyQ: 'l', KeyE: 'r' };
+  function walkActive() { return S.view === 'walk' && (walkIn.keys.size || walkIn.pad.size); }
+  function walkTick(now) {
+    const dt = min(0.12, walkIn.t ? (now - walkIn.t) / 1000 : 0); walkIn.t = now;
+    if (!dt) return;
+    const on = d => [...walkIn.keys].some(k => WALK_KEYS[k] === d) || walkIn.pad.has(d);
+    const fast = walkIn.keys.has('ShiftLeft') || walkIn.keys.has('ShiftRight') ? 2 : 1;
+    const fwd = (on('f') ? 1 : 0) - (on('b') ? 1 : 0), side = (on('sr') ? 1 : 0) - (on('sl') ? 1 : 0), turn = (on('r') ? 1 : 0) - (on('l') ? 1 : 0);
+    anim = null; cam.auto = false;
+    cam.wyaw += turn * 1.7 * dt;
+    const sp = 1.7 * fast * dt, fx = sin(cam.wyaw), fz = -cos(cam.wyaw);
+    cam.walk[0] = clamp(cam.walk[0] + (fx * fwd - fz * side) * sp, 0.4, S.room.W - 0.4);
+    cam.walk[2] = clamp(cam.walk[2] + (fz * fwd + fx * side) * sp, 0.4, S.room.D - 0.4);
+    dirty = true;
+  }
+  function frame(now) {
+    now = now || performance.now();
+    if (walkActive()) walkTick(now); else walkIn.t = 0;
+    if (anim) animStep(now); if (dirty) { dirty = false; draw(); } requestAnimationFrame(frame);
+  }
   function resize() {
     const dpr = min(window.devicePixelRatio || 1, 2), w = max(1, round(stage.clientWidth * dpr)), h = max(1, round(stage.clientHeight * dpr));
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; if (cam.auto && S.view !== 'walk' && S.room) setView(S.view); }
@@ -1245,8 +1270,14 @@
     cam.target[0] = clamp(cam.target[0] - cy * dx * s - sy * dy * s * k, -4, S.room.W + 4);
     cam.target[2] = clamp(cam.target[2] + sy * dx * s - cy * dy * s * k, -4, S.room.D + 4);
   }
+  window.addEventListener('keyup', e => { walkIn.keys.delete(e.code); });
+  window.addEventListener('blur', () => { walkIn.keys.clear(); walkIn.pad.clear(); });
   window.addEventListener('keydown', e => {
     if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName || '')) return;
+    if (S.view === 'walk' && !e.ctrlKey && !e.metaKey && !e.altKey && (WALK_KEYS[e.code] || /^Shift/.test(e.code)) && $('#modal').hidden) {
+      if (WALK_KEYS[e.code]) e.preventDefault();
+      walkIn.keys.add(e.code); return;
+    }
     if (e.key === 'Escape') { select(null); closeMenu(); closeModal(); if (meas.on) setMeasure(false); return; }
     if (!editing) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
@@ -1368,13 +1399,14 @@
     for (const it of S.items) clampItem(it);
     buildRoom(); floorDirty = true; renderRoomPane(); changed();
   }
+  function selH() { const bar = $('#selbar'); document.body.style.setProperty('--selh', bar.hidden ? '0px' : bar.offsetHeight + 10 + 'px'); }
   function updateSelbar() {
     const it = selItem(), bar = $('#selbar');
-    if (!it) { bar.hidden = true; return; }
+    if (!it) { bar.hidden = true; selH(); return; }
     const d = defOf(it), r = S.room, dec = it.k === DECAL;
     const dims = dec ? `${cm(d.w)}×${cm(d.wall ? d.h : d.d)} cm` : `${cm(d.w)}×${cm(d.d)}×${cm(d.h)} cm`;
     let h = `<div class="sb-top"><strong>${esc(d.name)}</strong><span class="mono">${dims}</span></div>`;
-    if (!editing) { bar.innerHTML = h + `<div class="sb-view">Per spostarlo o modificarlo tocca <b>Modifica</b> in alto.</div>`; bar.hidden = false; return; }
+    if (!editing) { bar.innerHTML = h + `<div class="sb-view">Per spostarlo o modificarlo tocca <b>Modifica</b> in alto.</div>`; bar.hidden = false; selH(); return; }
     h += `<div class="sb-btn">`;
     if (!d.wall) h += `<button type="button" data-act="rl" aria-label="Ruota di 15 gradi a sinistra">↺ 15°</button><button type="button" data-act="rr" aria-label="Ruota di 15 gradi a destra">↻ 15°</button><button type="button" data-act="r90">90°</button>`;
     if (dec) h += `<button type="button" data-act="sz-" aria-label="Più piccola del 10%">− 10%</button><button type="button" data-act="sz+" aria-label="Più grande del 10%">+ 10%</button>`;
@@ -1389,7 +1421,7 @@
     }
     h += `<em class="ed">Posizione esatta</em></button>`;
     if (overlapsOfSel().size) h += `<div class="sb-warn">Si sovrappone a un altro attrezzo (in rosso).</div>`;
-    bar.innerHTML = h; bar.hidden = false;
+    bar.innerHTML = h; bar.hidden = false; selH();
   }
 
   /* ---------------- eventi interfaccia ---------------- */
@@ -1427,6 +1459,17 @@
   });
   $('#btn-meas').addEventListener('click', () => setMeasure(!meas.on));
   $('#btn-edit').addEventListener('click', () => setEditing(!editing));
+  {
+    const pad = $('#walkpad');
+    const stop = e => { const b = e.target.closest('[data-mv]'); if (b) { walkIn.pad.delete(b.dataset.mv); b.classList.remove('on'); } };
+    pad.addEventListener('pointerdown', e => {
+      const b = e.target.closest('[data-mv]'); if (!b) return;
+      e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch (_) { }
+      walkIn.pad.add(b.dataset.mv); b.classList.add('on');
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) pad.addEventListener(ev, stop);
+    pad.addEventListener('contextmenu', e => e.preventDefault());
+  }
   /* elenco: tocco sulla riga = inquadra (con più pezzi uguali, ogni tocco il successivo); X = elimina uno */
   let goIdx = { k: '', i: -1 };
   $('#pane-list').addEventListener('click', e => {
@@ -1539,7 +1582,7 @@
       <li><b>Posizione esatta</b> Seleziona un oggetto e tocca la riga delle distanze per scrivere le misure precise.</li>
       <li><b>Metro</b> Tocca Metro in alto e poi due punti del pavimento per misurare una distanza.</li>
       <li><b>Pavimento</b> Scegli un materiale e tocca o trascina sulle piastrelle da 1×1 m. In Pianta è più comodo.</li>
-      <li><b>Interno</b> Vedi la sala ad altezza occhi. Doppio tocco sul pavimento per spostarti.</li>
+      <li><b>Interno</b> Vedi la sala ad altezza occhi. Dal computer cammini con W A S D o con le frecce (← → per girarti, Q ed E anche, Maiuscolo per andare più veloce). Dal telefono usa le frecce in basso a sinistra. Trascina per guardarti intorno; doppio tocco sul pavimento per andare in quel punto.</li>
       <li><b>Insieme</b> Menu, Condividi: chi apre il link modifica questa stessa sala, senza account. Le modifiche arrivano in un paio di secondi.</li>
       <li><b>Tastiera</b> In modifica: R ruota, D duplica, Canc elimina, Ctrl+Z annulla.</li>
       <li><b>Sala</b> Correggi dimensioni, finestre e portone (quelle iniziali sono stimate dalle foto) e scegli il colore di ogni parete.</li>
