@@ -7,7 +7,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
   /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
-  const APP_VER = '2026-11-26h';
+  const APP_VER = '2026-11-26i';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
@@ -1114,6 +1114,30 @@
   }
   function fillFloor() { pushHist(); S.cells.fill(S.paint); floorDirty = true; changed(); toast('Tutta la sala: ' + FLOOR_BY.get(S.paint).name + '.'); }
 
+  /* ---------------- modalità: guardare o modificare ----------------
+     All'apertura si guarda soltanto: si gira attorno, si zooma, si misura. Per spostare, aggiungere o cambiare
+     qualcosa si entra in Modifica (vale solo su questo dispositivo, non per gli altri). */
+  var editing = false;   // var: letto anche da funzioni chiamate prima di questa riga
+  const EDIT_ZONES = ['#room-dims', '#wall-cols', '#wall-presets', '#room-ops', '#room-add'];
+  function setEditing(v) {
+    editing = v;
+    if (act && act.type !== 'pinch') finishAct();
+    document.body.classList.toggle('editing', v);
+    const b = $('#btn-edit');
+    b.setAttribute('aria-pressed', String(v)); b.textContent = v ? 'Fine' : 'Modifica';
+    b.title = v ? 'Torna a guardare: niente si sposta per sbaglio' : 'Entra in modifica per spostare, aggiungere o eliminare';
+    for (const q of EDIT_ZONES) { const el = $(q); if (el) el.inert = !v; }
+    canvas.classList.toggle('painting', v && S.tab === 'floor');
+    updateSelbar(); updHist(); if (S.tab === 'list') renderList();
+    dirty = true; ovDirty = true;
+  }
+  function needEdit(msg) {
+    if (editing) return false;
+    toast((msg || 'Per cambiare la sala') + ' tocca Modifica in alto.', 3200);
+    const b = $('#btn-edit'); b.classList.remove('nudge'); void b.offsetWidth; b.classList.add('nudge');
+    return true;
+  }
+
   /* ---------------- puntatore ---------------- */
   const ptr = new Map(); let act = null, lastTap = { t: 0, x: 0, y: 0 };
   canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -1132,6 +1156,11 @@
     act = { type: 'orbit', x0: e.clientX, y0: e.clientY, lx: e.clientX, ly: e.clientY, moved: false };
     if (e.button === 2 || e.button === 1 || e.shiftKey) { act.type = S.tab === 'floor' && !e.shiftKey && S.view !== 'plan' ? 'orbit' : 'pan'; return; }
     if (meas.on) { act.type = S.view === 'plan' ? 'pan' : 'orbit'; act.tap = true; act.meas = true; return; }
+    if (!editing) {
+      const hit = pickItem(e.clientX, e.clientY);
+      act.type = S.view === 'plan' ? 'pan' : 'orbit'; act.tap = true; act.look = hit ? hit.it.id : null;
+      return;
+    }
     if (S.tab === 'floor') { act.type = 'paint'; paintAt(e.clientX, e.clientY, act); return; }
     const hit = pickItem(e.clientX, e.clientY);
     if (hit) {
@@ -1195,7 +1224,7 @@
       if (S.view === 'walk' && now - lastTap.t < 380 && hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
         const q = rayPlaneY(rayAt(e.clientX, e.clientY), 0.04);
         if (q) { cam.walk[0] = clamp(q[0], 0.4, S.room.W - 0.4); cam.walk[2] = clamp(q[2], 0.4, S.room.D - 0.4); dirty = true; }
-      } else select(null);
+      } else select(act.look || null);
       lastTap = { t: now, x: e.clientX, y: e.clientY };
     }
     finishAct();
@@ -1218,11 +1247,12 @@
   }
   window.addEventListener('keydown', e => {
     if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName || '')) return;
+    if (e.key === 'Escape') { select(null); closeMenu(); closeModal(); if (meas.on) setMeasure(false); return; }
+    if (!editing) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
     if (e.key === 'Delete' || e.key === 'Backspace') { if (selItem()) { e.preventDefault(); deleteSel(); } }
     else if (e.key === 'r' || e.key === 'R') rotateSel(e.shiftKey ? -PI / 12 : PI / 12);
-    else if (e.key === 'Escape') { select(null); closeMenu(); closeModal(); if (meas.on) setMeasure(false); }
     else if (e.key === 'd' || e.key === 'D') duplicateSel();
   });
 
@@ -1238,7 +1268,7 @@
     if (t === 'list') renderList();
     if (t === 'floor') { renderFloorInfo(); select(null); }
     if (t === 'room') renderRoomPane();
-    canvas.classList.toggle('painting', t === 'floor');
+    canvas.classList.toggle('painting', editing && t === 'floor');
     dirty = true;
   }
   let toastT = 0;
@@ -1329,6 +1359,7 @@
       <label for="op-h-${i}">Altezza<input id="op-h-${i}" data-f="h" type="number" inputmode="decimal" step="0.05" value="${+o.h.toFixed(2)}"></label></div></div>`).join('');
   }
   function applyRoom(mut) {
+    if (needEdit()) { renderRoomPane(); return; }
     pushHist();
     const next = JSON.parse(JSON.stringify(S.room)); mut(next);
     const oNx = S.nx, oNz = S.nz, oCells = S.cells;
@@ -1342,7 +1373,9 @@
     if (!it) { bar.hidden = true; return; }
     const d = defOf(it), r = S.room, dec = it.k === DECAL;
     const dims = dec ? `${cm(d.w)}×${cm(d.wall ? d.h : d.d)} cm` : `${cm(d.w)}×${cm(d.d)}×${cm(d.h)} cm`;
-    let h = `<div class="sb-top"><strong>${esc(d.name)}</strong><span class="mono">${dims}</span></div><div class="sb-btn">`;
+    let h = `<div class="sb-top"><strong>${esc(d.name)}</strong><span class="mono">${dims}</span></div>`;
+    if (!editing) { bar.innerHTML = h + `<div class="sb-view">Per spostarlo o modificarlo tocca <b>Modifica</b> in alto.</div>`; bar.hidden = false; return; }
+    h += `<div class="sb-btn">`;
     if (!d.wall) h += `<button type="button" data-act="rl" aria-label="Ruota di 15 gradi a sinistra">↺ 15°</button><button type="button" data-act="rr" aria-label="Ruota di 15 gradi a destra">↻ 15°</button><button type="button" data-act="r90">90°</button>`;
     if (dec) h += `<button type="button" data-act="sz-" aria-label="Più piccola del 10%">− 10%</button><button type="button" data-act="sz+" aria-label="Più grande del 10%">+ 10%</button>`;
     if (dec || d.custom) h += `<button type="button" data-act="edit">Modifica</button>`;
@@ -1365,6 +1398,7 @@
   $('#cat-chips').addEventListener('click', e => { const b = e.target.closest('[data-cat]'); if (b) { S.cat = b.dataset.cat; renderCatalog(); } });
   $('#cat-grid').addEventListener('click', e => {
     const del = e.target.closest('[data-delcustom]');
+    if (del && needEdit('Per eliminare un attrezzo tuo')) { e.stopPropagation(); return; }
     if (del) {
       e.stopPropagation(); pushHist();
       const id = del.dataset.delcustom;
@@ -1372,15 +1406,17 @@
       if (!selItem()) S.sel = null;
       syncCustomDefs(); renderCatalog(); changed(); return;
     }
+    if (!e.target.closest('[data-add],[data-decal],#btn-custom')) return;
+    if (needEdit('Per aggiungere qualcosa')) return;
     if (e.target.closest('#btn-custom')) { openCustom(); return; }
     const dk = e.target.closest('[data-decal]'); if (dk) { openDecal(dk.dataset.decal); return; }
     const b = e.target.closest('[data-add]'); if (b) addItem(b.dataset.add);
   });
   $('#floor-pal').addEventListener('click', e => { const b = e.target.closest('[data-floor]'); if (b) { S.paint = b.dataset.floor; renderFloorPalette(); } });
-  $('#btn-fill').addEventListener('click', fillFloor);
+  $('#btn-fill').addEventListener('click', () => { if (!needEdit('Per cambiare il pavimento')) fillFloor(); });
   $('#btn-plan').addEventListener('click', () => setView('plan'));
   $('#selbar').addEventListener('click', e => {
-    const b = e.target.closest('[data-act]'); if (!b) return;
+    const b = e.target.closest('[data-act]'); if (!b || !editing) return;
     const a = b.dataset.act, it = selItem();
     if (a === 'rl') rotateSel(PI / 12); else if (a === 'rr') rotateSel(-PI / 12); else if (a === 'r90') rotateSel(PI / 2);
     else if (a === 'dup') duplicateSel(); else if (a === 'del') deleteSel();
@@ -1390,6 +1426,7 @@
     else if (a === 'edit' && it) { if (it.k === DECAL) openDecal(it.type, it); else { const c = S.custom.find(c => c.id === it.k); if (c) openCustom(c); } }
   });
   $('#btn-meas').addEventListener('click', () => setMeasure(!meas.on));
+  $('#btn-edit').addEventListener('click', () => setEditing(!editing));
   /* elenco: tocco sulla riga = inquadra (con più pezzi uguali, ogni tocco il successivo); X = elimina uno */
   let goIdx = { k: '', i: -1 };
   $('#pane-list').addEventListener('click', e => {
@@ -1406,7 +1443,7 @@
       if (all.length > 1) toast(`${defOf(it).name}: ${i + 1} di ${all.length}. Tocca di nuovo per il successivo.`, 2600);
       return;
     }
-    const b = e.target.closest('[data-delk]'); if (!b) return;
+    const b = e.target.closest('[data-delk]'); if (!b || needEdit('Per eliminare')) return;
     const k = b.dataset.delk, sel = selItem();
     const it = sel && gkey(sel) === k ? sel : [...S.items].reverse().find(i => gkey(i) === k);
     if (!it) return;
@@ -1425,7 +1462,9 @@
     const b = e.target.closest('[data-m]'); if (!b) return; closeMenu();
     const m = b.dataset.m;
     if (m === 'gfx') { try { localStorage.setItem('sala3d.gfx', gfx === 'hq' ? 'low' : 'hq'); } catch (e) { /* senza archivio resta com'è */ } doUpdate(); return; }
-    if (m === 'share') shareLink(); else if (m === 'copy') copyRoom(); else if (m === 'export') exportFile(); else if (m === 'import') openImport(); else if (m === 'photo') savePhoto();
+    if (m === 'share') shareLink(); else if (m === 'copy') copyRoom(); else if (m === 'export') exportFile(); else if (m === 'photo') savePhoto();
+    else if ((m === 'clear' || m === 'example' || m === 'import') && needEdit()) return;
+    else if (m === 'import') openImport();
     else if (m === 'clear') { pushHist(); S.items = []; S.sel = null; changed(); toast('Sala svuotata. Con Annulla torni indietro.'); }
     else if (m === 'example') { pushHist(); restore(exampleProject()); afterBigChange(); setView(S.view, false); }
     else if (m === 'help') openHelp();
@@ -1492,7 +1531,8 @@
   }
   function openHelp() {
     openModal(`<h2>Come si usa</h2><ul class="help">
-      <li><b>Aggiungere</b> Apri Attrezzi e tocca una scheda: l'attrezzo compare al centro della vista.</li>
+      <li><b>Guardare o modificare</b> All'apertura puoi solo guardare: giri attorno, zoomi e misuri senza spostare niente per sbaglio. Tocca <b>Modifica</b> in alto per spostare, aggiungere o eliminare, e <b>Fine</b> quando hai finito. Vale solo sul tuo dispositivo.</li>
+      <li><b>Aggiungere</b> In modifica, apri Attrezzi e tocca una scheda: l'attrezzo compare al centro della vista.</li>
       <li><b>Spostare</b> Trascina l'attrezzo. Quelli a parete scorrono lungo i muri e si alzano o abbassano; quelli appesi arrivano fino al tetto.</li>
       <li><b>Vista</b> Un dito o tasto sinistro per ruotare, due dita o rotellina per lo zoom, due dita o tasto destro per spostarti.</li>
       <li><b>Decorazioni</b> In Attrezzi, Decorazioni: aggiungi un'immagine (anche montata come rotolo giapponese) o una scritta, su una parete o sul pavimento. Si spostano trascinandole come gli attrezzi.</li>
@@ -1501,7 +1541,7 @@
       <li><b>Pavimento</b> Scegli un materiale e tocca o trascina sulle piastrelle da 1×1 m. In Pianta è più comodo.</li>
       <li><b>Interno</b> Vedi la sala ad altezza occhi. Doppio tocco sul pavimento per spostarti.</li>
       <li><b>Insieme</b> Menu, Condividi: chi apre il link modifica questa stessa sala, senza account. Le modifiche arrivano in un paio di secondi.</li>
-      <li><b>Tastiera</b> R ruota, D duplica, Canc elimina, Ctrl+Z annulla.</li>
+      <li><b>Tastiera</b> In modifica: R ruota, D duplica, Canc elimina, Ctrl+Z annulla.</li>
       <li><b>Sala</b> Correggi dimensioni, finestre e portone (quelle iniziali sono stimate dalle foto) e scegli il colore di ogni parete.</li>
       <li><b>Modelli 3D</b> Con la grafica realistica alcuni attrezzi e arredi usano modelli 3D veri presi da Sketchfab, con licenza CC BY 4.0. Autori: sousinho, carlaspalomo, plaggy, benchk, vulcanstrength, akio_illu, tboiston, AllQuad. <a href="https://github.com/alessandrop95/sala-3d/blob/main/models/CREDITS.md" target="_blank" rel="noopener">Titoli e link ai modelli</a>.</li></ul>
       <div class="row"><button type="button" class="primary" data-close>Ho capito</button></div>`);
@@ -1572,6 +1612,7 @@
   resize();
   renderCatalog(); renderFloorPalette(); renderFloorInfo(); renderRoomPane(); updHist();
   setTab('cat'); if (isNarrow()) setPanelOpen(false);
+  setEditing(false);
   setView('orbit');
   requestAnimationFrame(frame);
   $('[data-m="gfx"]').textContent = gfx === 'hq' ? 'Grafica semplice (dispositivi lenti)' : 'Grafica realistica';

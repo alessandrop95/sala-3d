@@ -47,3 +47,7 @@ A ogni pubblicazione aggiorna la versione in tre punti uguali: `APP_VER` in `app
 ## Modelli 3D veri
 
 Alcuni attrezzi (squat rack, kettlebell, sacco) usano modelli GLB in `models/`, caricati solo con la grafica realistica; finché non sono pronti si vede la versione disegnata. Nel catalogo: `model` (percorso), `modelYaw` (rotazione per avere il fronte verso +Z), `modelBody` (altezza della parte che corrisponde all'attrezzo, il resto sopra sono catene) e `modelFit: 'box'` (adatta anche larghezza e profondità). Autori e licenze in `models/CREDITS.md`.
+
+## Guardare o modificare
+
+All'apertura la sala si può solo guardare (girare, zoomare, misurare, toccare un oggetto per vederne nome e misure). Il pulsante **Modifica** in alto abilita spostamenti, aggiunte, pavimento e misure della sala; **Fine** torna a guardare. La modalità vale solo sul dispositivo e non viene salvata: ogni volta si riparte da Guardare.

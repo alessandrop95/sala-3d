@@ -181,6 +181,20 @@ button.sb-ds:hover { border-color: var(--muted); }
 .help { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; font-size: 13.5px; }
 .help b { display: block; }
 
+/* guardare / modificare */
+.seg #btn-edit { color: var(--accent); }
+.seg #btn-edit[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+body:not(.editing) #btn-undo, body:not(.editing) #btn-redo { display: none; }
+body:not(.editing) #pane-list .x { visibility: hidden; }
+body:not(.editing) #cat-grid .card, body:not(.editing) #floor-pal, body:not(.editing) #btn-fill, body:not(.editing) #room-dims,
+body:not(.editing) #wall-cols, body:not(.editing) #wall-presets, body:not(.editing) #room-ops, body:not(.editing) #room-add { opacity: 0.55; }
+.view-note { display: none; margin: 0; padding: 8px 10px; border-radius: 9px; background: var(--chip); font-size: 12.5px; color: var(--ink); }
+body:not(.editing) .view-note { display: block; }
+.sb-view { font-size: 12.5px; color: var(--muted); }
+#btn-edit.nudge { animation: nudge 0.5s 2; }
+@keyframes nudge { 50% { transform: scale(1.12); } }
+@media (prefers-reduced-motion: reduce) { #btn-edit.nudge { animation: none; outline: 2px solid var(--accent); } }
+
 @media (max-width: 859px) {
   #app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   #stage { grid-column: 1; grid-row: 1; }
@@ -202,6 +216,9 @@ button.sb-ds:hover { border-color: var(--muted); }
 @media (max-width: 430px) {
   #hud { left: 8px; right: 8px; gap: 6px; }
   .seg button { padding: 7px 8px; font-size: 12.5px; }
+  body.editing .seg { padding: 2px; }
+  body.editing .seg button { padding: 7px 5.5px; font-size: 12px; }
+  body.editing #btn-undo, body.editing #btn-redo { padding-inline: 4px; }
   #net { margin: 0 2px 0 6px; }
   .sb-ds { font-size: 11px; }
 }
@@ -220,16 +237,19 @@ button.sb-ds:hover { border-color: var(--muted); }
     </nav>
     <div id="panes">
       <section class="pane" id="pane-cat">
+        <p class="view-note">Stai guardando la sala. Per cambiare qualcosa tocca <b>Modifica</b> in alto.</p>
         <div id="cat-chips"></div>
         <div id="cat-grid"></div>
       </section>
       <section class="pane" id="pane-floor" hidden>
+        <p class="view-note">Stai guardando la sala. Per cambiare qualcosa tocca <b>Modifica</b> in alto.</p>
         <p>Scegli un materiale, poi tocca o trascina sulle piastrelle da 1×1 m.</p>
         <div id="floor-pal"></div>
         <div class="row"><button type="button" id="btn-fill">Riempi tutta la sala</button><button type="button" id="btn-plan">Vista dall'alto</button></div>
         <ul class="stat" id="floor-info"></ul>
       </section>
       <section class="pane" id="pane-room" hidden>
+        <p class="view-note">Stai guardando la sala. Per cambiare qualcosa tocca <b>Modifica</b> in alto.</p>
         <p>Misure stimate dalle foto. Sostituiscile con quelle reali: il resto si adatta.</p>
         <div id="room-dims"></div>
         <label class="chk" for="rm-roof"><input type="checkbox" id="rm-roof" checked>Mostra tetto e travi</label>
@@ -240,9 +260,10 @@ button.sb-ds:hover { border-color: var(--muted); }
         <h3>Finestre e portone</h3>
         <p>La parete A è quella del portone. B, C e D seguono in senso orario guardando dall'alto. Misure in metri.</p>
         <div id="room-ops"></div>
-        <div class="row"><button type="button" id="btn-addwin">Aggiungi finestra</button><button type="button" id="btn-adddoor">Aggiungi porta</button></div>
+        <div class="row" id="room-add"><button type="button" id="btn-addwin">Aggiungi finestra</button><button type="button" id="btn-adddoor">Aggiungi porta</button></div>
       </section>
       <section class="pane" id="pane-list" hidden>
+        <p class="view-note">Stai guardando la sala. Per cambiare qualcosa tocca <b>Modifica</b> in alto.</p>
         <h3>Attrezzi</h3>
         <ul class="stat" id="list-items"></ul>
         <h3 id="h-decor" hidden>Decorazioni</h3>
@@ -268,6 +289,7 @@ button.sb-ds:hover { border-color: var(--muted); }
         <button type="button" id="btn-undo" aria-label="Annulla" title="Annulla" disabled>↶</button>
         <button type="button" id="btn-redo" aria-label="Ripeti" title="Ripeti" disabled>↷</button>
         <button type="button" id="btn-meas" aria-pressed="false" title="Misura una distanza sul pavimento">Metro</button>
+        <button type="button" id="btn-edit" aria-pressed="false">Modifica</button>
         <button type="button" id="btn-menu" aria-haspopup="true" aria-expanded="false">Menu</button>
       </div>
     </div>
@@ -293,9 +315,9 @@ button.sb-ds:hover { border-color: var(--muted); }
 </div>
 <div id="modal" hidden><div id="modal-body" role="dialog" aria-modal="true"></div></div>
 <input type="file" id="file" accept=".json,application/json" hidden>
-<script src="config.js?v=2026-11-26h"></script>
-<script src="engine.js?v=2026-11-26h"></script>
-<script src="catalog.js?v=2026-11-26h"></script>
-<script src="app.js?v=2026-11-26h"></script>
+<script src="config.js?v=2026-11-26i"></script>
+<script src="engine.js?v=2026-11-26i"></script>
+<script src="catalog.js?v=2026-11-26i"></script>
+<script src="app.js?v=2026-11-26i"></script>
 </body>
 </html>
