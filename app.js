@@ -7,7 +7,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
   /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
-  const APP_VER = '2026-11-26b';
+  const APP_VER = '2026-11-26c';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
@@ -112,8 +112,9 @@
       const wi = wallInfo(WALL_KEYS.includes(p.wall) ? p.wall : 'A');
       const w = clamp(+p.w || 1, 0.3, wi.len), u = clamp(+p.u || 0, 0, wi.len - w);
       const hm = min(wi.hAt(u), wi.hAt(u + w)) - 0.05;
-      const sill = p.t === 'door' ? 0 : clamp(+p.sill || 0, 0, hm - 0.3), h = clamp(+p.h || 1, 0.3, hm - sill);
-      o.openings.push({ t: p.t === 'door' ? 'door' : 'win', wall: wi.key, u, w, sill, h });
+      const t = p.t === 'door' || p.t === 'pass' ? p.t : 'win';
+      const sill = t !== 'win' ? 0 : clamp(+p.sill || 0, 0, hm - 0.3), h = clamp(+p.h || 1, 0.3, hm - sill);
+      o.openings.push({ t, wall: wi.key, u, w, sill, h });
     }
     S.room = prev;
     o.cols = {};
@@ -376,7 +377,13 @@
     const z = -T / 2;
     for (const o of ops) {
       const cx = o.u + o.w / 2, cy = o.sill + o.h / 2;
-      if (o.t === 'door') {
+      if (o.t === 'pass') {
+        // passaggio aperto: solo stipiti e architrave in legno, nessun battente
+        const fw = 0.08;
+        for (const x of [o.u + fw / 2, o.u + o.w - fw / 2]) mb.box(x, o.h / 2, z, fw, o.h, T + 0.02, '#6b4f33');
+        mb.box(cx, o.h + fw / 2, z, o.w, fw, T + 0.02, '#6b4f33');
+        mb.box(cx, 0.006, z, o.w, 0.012, T + 0.02, '#8a6a42');
+      } else if (o.t === 'door') {
         mb.box(cx, cy, z, o.w, o.h, 0.06, '#8e9499', { g: 0.25 });
         const n = max(1, round(o.w / 1.0));
         for (let i = 1; i < n; i++) mb.box(o.u + i * o.w / n, cy, z + 0.035, 0.016, o.h, 0.012, '#5f646a');
@@ -1271,13 +1278,13 @@
     $('#wall-cols').innerHTML = WALL_KEYS.map(k => `<label class="wc" for="wc-${k}"><input type="color" id="wc-${k}" data-wall="${k}" value="${cols[k] || WALL_COL}"><span>Parete ${k}</span></label>`).join('');
     $('#wall-presets').innerHTML = WALL_PRESETS.map(([n, c]) => `<button type="button" class="chip pc" data-wcol="${c}" title="Tutte le pareti: ${esc(n)}"><i style="background:${c}"></i>${esc(n)}</button>`).join('');
     $('#room-ops').innerHTML = r.openings.map((o, i) => `<div class="op" data-i="${i}">
-      <div class="op-h"><select id="op-t-${i}" data-f="t" aria-label="Tipo"><option value="win"${o.t === 'win' ? ' selected' : ''}>Finestra</option><option value="door"${o.t === 'door' ? ' selected' : ''}>Portone</option></select>
+      <div class="op-h"><select id="op-t-${i}" data-f="t" aria-label="Tipo"><option value="win"${o.t === 'win' ? ' selected' : ''}>Finestra</option><option value="door"${o.t === 'door' ? ' selected' : ''}>Portone</option><option value="pass"${o.t === 'pass' ? ' selected' : ''}>Passaggio aperto</option></select>
       <select id="op-w-${i}" data-f="wall" aria-label="Parete">${WALL_KEYS.map(k => `<option value="${k}"${o.wall === k ? ' selected' : ''}>Parete ${k}</option>`).join('')}</select>
       <button type="button" class="ic" data-opdel="${i}" aria-label="Elimina apertura">×</button></div>
       <div class="op-g">
       <label for="op-u-${i}">Dall'angolo<input id="op-u-${i}" data-f="u" type="number" inputmode="decimal" step="0.05" value="${+o.u.toFixed(2)}"></label>
       <label for="op-l-${i}">Larghezza<input id="op-l-${i}" data-f="w" type="number" inputmode="decimal" step="0.05" value="${+o.w.toFixed(2)}"></label>
-      <label for="op-s-${i}">Da terra<input id="op-s-${i}" data-f="sill" type="number" inputmode="decimal" step="0.05" value="${+o.sill.toFixed(2)}"${o.t === 'door' ? ' disabled' : ''}></label>
+      <label for="op-s-${i}">Da terra<input id="op-s-${i}" data-f="sill" type="number" inputmode="decimal" step="0.05" value="${+o.sill.toFixed(2)}"${o.t !== 'win' ? ' disabled' : ''}></label>
       <label for="op-h-${i}">Altezza<input id="op-h-${i}" data-f="h" type="number" inputmode="decimal" step="0.05" value="${+o.h.toFixed(2)}"></label></div></div>`).join('');
   }
   function applyRoom(mut) {
@@ -1400,7 +1407,7 @@
   $('#room-ops').addEventListener('change', e => {
     const row = e.target.closest('.op'), f = e.target.dataset.f; if (!row || !f) return;
     const i = +row.dataset.i, raw = e.target.value;
-    applyRoom(r => { const o = r.openings[i]; if (!o) return; if (f === 't' || f === 'wall') o[f] = raw; else { const v = parseFloat(String(raw).replace(',', '.')); if (isFinite(v)) o[f] = v; } if (o.t === 'door') o.sill = 0; });
+    applyRoom(r => { const o = r.openings[i]; if (!o) return; if (f === 't' || f === 'wall') o[f] = raw; else { const v = parseFloat(String(raw).replace(',', '.')); if (isFinite(v)) o[f] = v; } if (o.t !== 'win') o.sill = 0; });
   });
   $('#room-ops').addEventListener('click', e => { const b = e.target.closest('[data-opdel]'); if (b) applyRoom(r => { r.openings.splice(+b.dataset.opdel, 1); }); });
   $('#btn-addwin').addEventListener('click', () => applyRoom(r => { r.openings.push({ t: 'win', wall: 'C', u: 1, w: 2, sill: 1.1, h: 1.5 }); }));

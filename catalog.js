@@ -364,6 +364,16 @@ const CATALOG = [
     },
   },
   {
+    k: 'koshiitaalto', name: 'Rivestimento in legno alto', cat: 'giappone', w: 2.4, d: 0.03, h: 2.8, wall: true, elev: 0,
+    build(b) {
+      const n = 16, bw = 2.4 / n;
+      for (let i = 0; i < n; i++) b.box(-1.2 + bw / 2 + i * bw, 1.4, 0, bw - 0.006, 2.8, 0.025, i % 2 ? '#a77d4f' : '#b68a59');
+      b.box(0, 2.79, 0.012, 2.4, 0.06, 0.05, WDK);
+      b.box(0, 1.0, 0.012, 2.4, 0.04, 0.035, WDK);
+      b.box(0, 0.04, 0.012, 2.4, 0.08, 0.04, WDK);
+    },
+  },
+  {
     k: 'noren', name: 'Noren (tenda)', cat: 'giappone', w: 0.9, d: 0.05, h: 0.95, wall: true, elev: 1.2,
     build(b) {
       b.cyl(0, 0.93, 0.0, 0.012, 0.98, WDK, { axis: 'x' });
