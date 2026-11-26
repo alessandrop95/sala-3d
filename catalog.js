@@ -106,6 +106,15 @@ const CATALOG = [
       for (let i = 0; i < 13; i++) b.cyl(0, 0.14 + i * 0.165, 0, 0.018, 0.84, '#d8b98a', { axis: 'x', seg: 8 });
       b.cyl(0, 2.33, 0.055, 0.018, 0.84, '#d8b98a', { axis: 'x', seg: 8 });
     },
+  },  {
+    k: 'spallieraanelli', name: 'Spalliera con anelli e scaletta', cat: 'strutture', w: 0.86, d: 0.71, h: 2.42, wall: true, fixElev: true, model: 'models/spalliera-anelli.glb',
+    build(b) {
+      for (const sx of [-1, 1]) b.box(sx * 0.43, 1.2, -0.02, 0.035, 2.4, 0.12, WD);
+      for (let i = 0; i < 13; i++) b.cyl(0, 0.14 + i * 0.165, 0, 0.018, 0.84, '#d8b98a', { axis: 'x', seg: 8 });
+      b.cyl(0, 2.33, 0.055, 0.018, 0.84, '#d8b98a', { axis: 'x', seg: 8 });
+      b.box(0.36, 2.33, 0.3, 0.06, 0.08, 0.66, WD);
+      for (const sx of [-0.12, 0.12]) { b.cyl(sx, 1.85, 0.5, 0.004, 0.9, '#cfc6b8', { seg: 6 }); b.tor(sx, 1.4, 0.5, 0.09, 0.014, '#2f8a3c', { r: [-Math.PI / 2, 0, 0] }); }
+    },
   },
   {
     k: 'dip', name: 'Parallele dip', cat: 'strutture', w: 0.75, d: 1.1, h: 1.3,

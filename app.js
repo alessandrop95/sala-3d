@@ -7,7 +7,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
   /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
-  const APP_VER = '2026-11-26g';
+  const APP_VER = '2026-11-26h';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
