@@ -59,3 +59,7 @@ Nella vista Interno si guida un karateka (karategi bianco, cintura nera) visto a
 ## Tende
 
 Ogni finestra può avere una tenda nera (Sala → Finestre e portone, oppure "Tende nere a tutte le finestre"). La tenda va dal bastone sopra la finestra fino al davanzale; si apre e si chiude toccandola nella vista, anche senza Modifica, o da Menu → Apri / chiudi le tende. Nei dati è `cur: true` e `cl` (1 chiusa, 0 aperta) sull'apertura.
+
+## Luci (vista di sera)
+
+Pulsante Giorno / Sera sotto le viste. Di sera la sala è illuminata dagli oggetti della categoria Luci LED (strisce, barre a sospensione, chōchin, applique, andon, plafoniera): ogni attrezzo ha `light()` con punti `[x, y, z, intensità, raggio, filtro]`. Intensità (0–200%) e temperatura (2200–6500 K) si regolano con i cursori; le luci vicine si fondono finché sono al massimo 16 (limite dello shader). Tutto questo è una preferenza del dispositivo, non della sala.

@@ -7,7 +7,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const snap = v => Math.round(v * 20) / 20;
   /* versione del programma: deve coincidere con version.json e con i ?v= in index.html */
-  const APP_VER = '2026-11-26p';
+  const APP_VER = '2026-11-26q';
   const CFG = Object.assign({ url: '', anon: '' }, window.SALA_CFG || {});
   const ROOM_RE = /^[a-z0-9]{10,40}$/;
   const newId = () => Math.floor(Math.random() * 9e15) + 1;
@@ -761,9 +761,30 @@
   let lightMode = 'day';
   try { lightMode = localStorage.getItem('sala3d.light') === 'night' ? 'night' : 'day'; } catch (_) { }
   const NIGHT_BG = [0.035, 0.045, 0.075, 1];
+  const leds = { int: 1, K: 2700 };
+  try { const v = JSON.parse(localStorage.getItem('sala3d.leds') || '{}'); if (v.int >= 0 && v.int <= 2) leds.int = v.int; if (v.K >= 2200 && v.K <= 6500) leds.K = v.K; } catch (_) { }
+  /* colore della luce da una temperatura in Kelvin (approssimazione di Tanner Helland), lineare, a luminanza 1, per l'intensità scelta */
+  let ledKey = '', ledCol = [1, 1, 1];
+  function ledColor() {
+    const key = leds.K + '|' + leds.int; if (key === ledKey) return ledCol;
+    const t = leds.K / 100;
+    const r = t <= 66 ? 255 : 329.698727446 * Math.pow(t - 60, -0.1332047592);
+    const g = t <= 66 ? 99.4708025861 * Math.log(t) - 161.1195681661 : 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+    const b = t >= 66 ? 255 : t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+    const lin = v => Math.pow(clamp(v, 0, 255) / 255, 2.2), c = [lin(r), lin(g), lin(b)];
+    const L = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] || 1;
+    ledCol = c.map(v => v / L * 0.62 * leds.int); ledKey = key;
+    return ledCol;
+  }
+  function renderLedCtl() {
+    $('#lc-int').value = round(leds.int * 100); $('#lc-int-o').textContent = round(leds.int * 100) + '%';
+    $('#lc-k').value = leds.K; $('#lc-k-o').textContent = leds.K + ' K' + (leds.K <= 3000 ? ' · calda' : leds.K >= 5000 ? ' · fredda' : ' · neutra');
+  }
+  function saveLeds() { try { localStorage.setItem('sala3d.leds', JSON.stringify(leds)); } catch (_) { } }
   function setLightMode(m) {
     lightMode = m; try { localStorage.setItem('sala3d.light', m); } catch (_) { }
     document.body.classList.toggle('night', m === 'night');
+    $('#light-ctl').hidden = m !== 'night'; renderLedCtl();
     const b = $('#btn-light'); b.innerHTML = m === 'night' ? '<span aria-hidden="true">☾</span> Sera' : '<span aria-hidden="true">☀</span> Giorno';
     b.setAttribute('aria-label', m === 'night' ? 'Vista di sera: tocca per il giorno' : 'Vista di giorno: tocca per la sera');
     dirty = true;
@@ -821,7 +842,7 @@
         }
         if (it.id !== S.sel) continue;
       } else {
-        if (d.light) for (const l of d.light(d)) sceneLights.push({ p: M4.tp(M4.compose(it.x, y, it.z, it.rot), [l[0], l[1], l[2]]), c: [l[3], l[4], l[5]], r: l[6] });
+        if (d.light) for (const l of d.light(d)) { const f = l[5] || [1, 1, 1], kc = ledColor(); sceneLights.push({ p: M4.tp(M4.compose(it.x, y, it.z, it.rot), [l[0], l[1], l[2]]), c: [kc[0] * f[0] * l[3], kc[1] * f[1] * l[3], kc[2] * f[2] * l[3]], r: l[4] }); }
         dr.push(Object.assign(itemDrawable(it.k, M4.compose(it.x, y, it.z, it.rot)), {
         cast: true,
         tint: it.id === S.sel ? [accLin[0], accLin[1], accLin[2], 0.14] : ov.has(it.id) ? [0.85, 0.08, 0.05, 0.4] : null,
@@ -1686,6 +1707,9 @@
   $('#btn-meas').addEventListener('click', () => setMeasure(!meas.on));
   $('#btn-edit').addEventListener('click', () => setEditing(!editing));
   $('#btn-light').addEventListener('click', () => setLightMode(lightMode === 'night' ? 'day' : 'night'));
+  $('#lc-int').addEventListener('input', e => { leds.int = clamp(+e.target.value / 100, 0, 2); renderLedCtl(); saveLeds(); dirty = true; });
+  $('#lc-k').addEventListener('input', e => { leds.K = clamp(+e.target.value, 2200, 6500); renderLedCtl(); saveLeds(); dirty = true; });
+  $('#lc-hide').addEventListener('click', () => { const c = $('#light-ctl'); c.classList.toggle('mini'); $('#lc-hide').textContent = c.classList.contains('mini') ? 'Regola le luci' : 'Nascondi'; });
   {
     const pad = $('#walkpad');
     const stop = e => { const b = e.target.closest('[data-mv]'); if (b) { walkIn.pad.delete(b.dataset.mv); b.classList.remove('on'); } };
@@ -1824,7 +1848,7 @@
       <li><b>Interno</b> Guidi un karateka e lo segui alle sue spalle. Dal computer cammini con W A S D o con le frecce (← → per girarti, Q ed E anche, Maiuscolo per andare più veloce). Dal telefono usa le frecce in basso a sinistra. Trascina per guardarti intorno; doppio tocco sul pavimento e ci va camminando.</li>
       <li><b>Insieme</b> Menu, Condividi: chi apre il link modifica questa stessa sala, senza account. Le modifiche arrivano in un paio di secondi.</li>
       <li><b>Tastiera</b> In modifica: R ruota, D duplica, Canc elimina, Ctrl+Z annulla.</li>
-      <li><b>Giorno e sera</b> Il pulsante sotto 3D / Pianta / Interno passa dalla luce del sole alla sera, con la sala illuminata solo da LED e lanterne (categoria Luci LED negli Attrezzi). Vale solo sul tuo dispositivo.</li>
+      <li><b>Giorno e sera</b> Il pulsante sotto 3D / Pianta / Interno passa dalla luce del sole alla sera, con la sala illuminata solo da LED e lanterne (categoria Luci LED negli Attrezzi). Di sera compaiono due cursori: intensità dei LED (0–200%) e colore della luce, da calda (2200 K) a fredda (6500 K). Vale solo sul tuo dispositivo.</li>
       <li><b>Tende</b> In Sala, sotto Finestre e portone, metti una tenda nera alle finestre che vuoi. Poi toccala nella vista per aprirla o chiuderla (anche senza Modifica), oppure Menu, Apri / chiudi le tende.</li>
       <li><b>Sala</b> Correggi dimensioni, finestre e portone (quelle iniziali sono stimate dalle foto) e scegli il colore di ogni parete.</li>
       <li><b>Modelli 3D</b> Con la grafica realistica alcuni attrezzi e arredi usano modelli 3D veri presi da Sketchfab, con licenza CC BY 4.0. Autori: sousinho, carlaspalomo, plaggy, benchk, vulcanstrength, akio_illu, tboiston, AllQuad. <a href="https://github.com/alessandrop95/sala-3d/blob/main/models/CREDITS.md" target="_blank" rel="noopener">Titoli e link ai modelli</a>.</li></ul>

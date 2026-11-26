@@ -40,19 +40,29 @@ function digit(b, x, y, z, n, s) {
 
 const CATS = [['decor', 'Decorazioni'], ['giappone', 'Stile giapponese'], ['strutture', 'Strutture'], ['pesi', 'Pesi liberi'], ['funzionale', 'Funzionale'], ['cardio', 'Cardio'], ['marziali', 'Arti marziali'], ['arredo', 'Arredo e servizi'], ['luci', 'Luci LED'], ['miei', 'I miei attrezzi']];
 
-const WARM = [1.0, 0.66, 0.36], AMBER = [1.0, 0.5, 0.24];
+/* luci: [x, y, z, intensità, raggio, filtro]; il colore viene dalla temperatura scelta (calda/fredda), il filtro è la carta che la luce attraversa */
+const LPAPER = [1.0, 0.93, 0.8], REDPAPER = [1.0, 0.55, 0.4];
 const CATALOG = [
   {
     k: 'ledstrip', name: 'Striscia LED calda 2 m (a parete)', cat: 'luci', w: 2.0, d: 0.04, h: 0.03, wall: true, elev: 2.6,
-    light: () => [-0.5, 0.5].map(x => [x, 0.12, 0.18, WARM[0] * 2.0, WARM[1] * 2.0, WARM[2] * 2.0, 5]),
+    light: () => [-0.5, 0.5].map(x => [x, 0.12, 0.18, 1.45, 5]),
     build(b) {
       b.box(0, 0, -0.005, 2.0, 0.03, 0.03, '#2b2b2b', { g: 0.4, m: MAT.METAL });
-      b.box(0, 0.012, 0.004, 1.98, 0.008, 0.022, '#ffc47a', { e: 1 });
+      b.box(0, 0.012, 0.004, 1.98, 0.008, 0.022, '#fff2dc', { e: 1 });
+    },
+  },
+  {
+    k: 'barraled', name: 'Barra LED a sospensione 1,5 m', cat: 'luci', w: 1.5, d: 0.07, h: 0.05, hang: true, elev: 3.0, ropes: [[-0.62, 0], [0.62, 0]], ropeR: 0.002, ropeCol: 'steel',
+    light: () => [-0.5, 0, 0.5].map(x => [x, -0.15, 0, 1.35, 6.5]),
+    build(b) {
+      b.box(0, 0.03, 0, 1.5, 0.04, 0.07, '#1f1f1f', { g: 0.45, m: MAT.METAL });
+      b.box(0, 0.007, 0, 1.46, 0.006, 0.055, '#fff6e6', { e: 1 });
+      for (const sx of [-1, 1]) b.box(sx * 0.752, 0.03, 0, 0.004, 0.042, 0.072, '#2c2c2c', { g: 0.4, m: MAT.METAL });
     },
   },
   {
     k: 'chochin', name: 'Lanterna chōchin appesa', cat: 'luci', w: 0.34, d: 0.34, h: 0.56, hang: true, elev: 2.3, ropes: [[0, 0]], ropeR: 0.004, ropeCol: 'dark',
-    light: () => [[0, 0.28, 0, AMBER[0] * 1.2, AMBER[1] * 1.2, AMBER[2] * 1.2, 5]],
+    light: () => [[0, 0.28, 0, 1.2, 5, REDPAPER]],
     build(b) {
       b.sph(0, 0.28, 0, 0.17, '#c6402c', { s: [1, 1.42, 1], e: 0.85, seg: 20 });
       for (let i = 1; i < 9; i++) { const y = 0.28 + (i / 9 - 0.5) * 0.46, r = 0.17 * Math.sqrt(1 - Math.pow((y - 0.28) / 0.245, 2)) + 0.002; b.tor(0, y, 0, r, 0.003, '#3a1a12', { seg: 24 }); }
@@ -62,7 +72,7 @@ const CATALOG = [
   },
   {
     k: 'applique', name: 'Applique andon a muro', cat: 'luci', w: 0.24, d: 0.14, h: 0.4, wall: true, elev: 1.9,
-    light: () => [[0, 0.2, 0.22, WARM[0] * 0.8, WARM[1] * 0.8, WARM[2] * 0.8, 4]],
+    light: () => [[0, 0.2, 0.22, 0.75, 4, LPAPER]],
     build(b) {
       b.box(0, 0.2, -0.06, 0.24, 0.4, 0.02, '#2a1c12', {});
       b.box(0, 0.2, 0.01, 0.2, 0.34, 0.12, '#f3e2bd', { e: 0.9 });
@@ -427,7 +437,7 @@ const CATALOG = [
   },
   {
     k: 'andon', name: 'Lanterna andon', cat: 'giappone', w: 0.34, d: 0.34, h: 0.85, model: 'models/andon.glb',
-    light: () => [[0, 0.5, 0, WARM[0] * 0.9, WARM[1] * 0.9, WARM[2] * 0.9, 4.5]],
+    light: () => [[0, 0.5, 0, 0.85, 4.5, LPAPER]],
     build(b) {
       b.box(0, 0.05, 0, 0.34, 0.06, 0.34, WDK);
       b.box(0, 0.5, 0, 0.28, 0.66, 0.28, '#f6e4bb', { e: 0.9 });
@@ -530,6 +540,7 @@ const CATALOG = [
   },
   {
     k: 'plafoniera', name: 'Plafoniera LED', cat: 'arredo', w: 1.2, d: 0.3, h: 0.06, hang: true, elev: 3.2, ropes: [[-0.5, 0], [0.5, 0]], ropeR: 0.003, ropeCol: 'steel',
+    light: () => [-0.4, 0.4].map(x => [x, -0.15, 0, 1.1, 6]),
     build(b) { b.box(0, 0.035, 0, 1.2, 0.05, 0.3, '#d9dcde', { g: 0.4 }); b.box(0, 0.008, 0, 1.16, 0.006, 0.26, '#fffdf6', { e: 1 }); },
   },
   {

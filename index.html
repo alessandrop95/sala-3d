@@ -196,6 +196,18 @@ button.sb-ds:hover { border-color: var(--muted); }
 #btn-light { position: absolute; left: 0; top: 46px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 12px; font-weight: 600; font-size: 12.5px; color: var(--ink); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12); }
 body.night #btn-light { background: #1d2333; color: #f3d9a4; border-color: #39415a; }
 #btn-light span { font-size: 14px; }
+#light-ctl { position: absolute; left: 0; top: 84px; width: 210px; background: rgba(23, 27, 39, 0.9); color: #f1e6cf; border: 1px solid #39415a; border-radius: 12px; padding: 9px 11px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); }
+#light-ctl[hidden] { display: none; }
+#light-ctl .lc-row { display: flex; justify-content: space-between; align-items: baseline; }
+#light-ctl output { font-family: var(--f-num); color: #f3d9a4; }
+#light-ctl input[type=range] { width: 100%; accent-color: #e7b45f; margin: 0 0 4px; }
+#light-ctl input.kelvin { -webkit-appearance: none; appearance: none; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #ff9f43, #ffd9a6, #fff6ec, #dfe9ff); margin: 6px 0 2px; }
+#light-ctl input.kelvin::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 2px solid #39415a; }
+#light-ctl input.kelvin::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 2px solid #39415a; }
+#light-ctl .lc-ends { display: flex; justify-content: space-between; font-size: 10.5px; opacity: 0.7; }
+#light-ctl button { align-self: flex-end; border: 0; background: none; color: #f3d9a4; font-size: 11.5px; padding: 2px 0 0; text-decoration: underline; }
+#light-ctl.mini { width: auto; padding: 6px 10px; }
+#light-ctl.mini > :not(#lc-hide) { display: none; }
 
 /* guardare / modificare */
 .seg #btn-edit { color: var(--accent); }
@@ -302,6 +314,14 @@ body:not(.editing) .view-note { display: block; }
         <button type="button" data-view="walk" aria-pressed="false">Interno</button>
       </div>
       <button type="button" id="btn-light" class="pill">Giorno</button>
+      <div id="light-ctl" hidden>
+        <div class="lc-row"><label for="lc-int">Intensità LED</label><output id="lc-int-o">100%</output></div>
+        <input type="range" id="lc-int" min="0" max="200" step="5" value="100">
+        <div class="lc-row"><label for="lc-k">Colore</label><output id="lc-k-o">2700 K</output></div>
+        <input type="range" id="lc-k" class="kelvin" min="2200" max="6500" step="100" value="2700">
+        <div class="lc-ends"><span>calda</span><span>fredda</span></div>
+        <button type="button" id="lc-hide">Nascondi</button>
+      </div>
       <div class="seg">
         <span id="net" role="img" aria-label="Stato della sincronizzazione" title="Collegamento in corso"></span>
         <button type="button" id="btn-undo" aria-label="Annulla" title="Annulla" disabled>↶</button>
@@ -342,10 +362,10 @@ body:not(.editing) .view-note { display: block; }
 </div>
 <div id="modal" hidden><div id="modal-body" role="dialog" aria-modal="true"></div></div>
 <input type="file" id="file" accept=".json,application/json" hidden>
-<script src="config.js?v=2026-11-26p"></script>
-<script src="engine.js?v=2026-11-26p"></script>
-<script src="karateka.js?v=2026-11-26p"></script>
-<script src="catalog.js?v=2026-11-26p"></script>
-<script src="app.js?v=2026-11-26p"></script>
+<script src="config.js?v=2026-11-26q"></script>
+<script src="engine.js?v=2026-11-26q"></script>
+<script src="karateka.js?v=2026-11-26q"></script>
+<script src="catalog.js?v=2026-11-26q"></script>
+<script src="app.js?v=2026-11-26q"></script>
 </body>
 </html>
