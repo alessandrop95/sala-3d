@@ -100,7 +100,7 @@ const CATALOG = [
     },
   },
   {
-    k: 'spalliera', name: 'Spalliera svedese', cat: 'strutture', w: 0.9, d: 0.16, h: 2.4, wall: true, fixElev: true,
+    k: 'spalliera', name: 'Spalliera svedese', cat: 'strutture', w: 0.9, d: 0.16, h: 2.4, wall: true, fixElev: true, model: 'models/spalliera.glb',
     build(b) {
       for (const sx of [-1, 1]) b.box(sx * 0.43, 1.2, -0.02, 0.035, 2.4, 0.12, WD);
       for (let i = 0; i < 13; i++) b.cyl(0, 0.14 + i * 0.165, 0, 0.018, 0.84, '#d8b98a', { axis: 'x', seg: 8 });
@@ -118,7 +118,7 @@ const CATALOG = [
       for (const sz of [-1, 1]) b.box(0, 0.02, sz * 0.42, 0.7, 0.04, 0.06, K, G3);
     },
   },
-  { k: 'barbell', name: 'Bilanciere olimpico con dischi', cat: 'pesi', w: 2.2, d: 0.45, h: 0.45, build(b) { barbell(b, 0.225, 0, 2); } },
+  { k: 'barbell', name: 'Bilanciere olimpico con dischi', cat: 'pesi', w: 2.2, d: 0.45, h: 0.45, model: 'models/bilanciere.glb', build(b) { barbell(b, 0.225, 0, 2); } },
   {
     k: 'dbrack', name: 'Rastrelliera manubri', cat: 'pesi', w: 2.2, d: 0.62, h: 0.9,
     build(b) {
@@ -158,7 +158,7 @@ const CATALOG = [
       }
     },
   },
-  { k: 'bumper', name: 'Disco bumper 20 kg', cat: 'pesi', w: 0.45, d: 0.45, h: 0.07, build(b) { plate(b, 0, 0.035, 0, 0.225, 0.07, RB, 'y'); } },
+  { k: 'bumper', name: 'Disco bumper 20 kg', cat: 'pesi', w: 0.45, d: 0.45, h: 0.056, model: 'models/bumper.glb', build(b) { plate(b, 0, 0.035, 0, 0.225, 0.07, RB, 'y'); } },
   {
     k: 'bench', name: 'Panca piana', cat: 'pesi', w: 0.6, d: 1.25, h: 0.45,
     build(b) {
@@ -394,7 +394,7 @@ const CATALOG = [
     },
   },
   {
-    k: 'andon', name: 'Lanterna andon', cat: 'giappone', w: 0.34, d: 0.34, h: 0.95,
+    k: 'andon', name: 'Lanterna andon', cat: 'giappone', w: 0.34, d: 0.34, h: 0.85, model: 'models/andon.glb',
     build(b) {
       b.box(0, 0.05, 0, 0.34, 0.06, 0.34, WDK);
       b.box(0, 0.5, 0, 0.28, 0.66, 0.28, '#f6e4bb', { e: 0.9 });
@@ -485,14 +485,14 @@ const CATALOG = [
     },
   },
   {
-    k: 'appendiabiti', name: 'Appendiabiti a parete', cat: 'arredo', w: 1.2, d: 0.12, h: 0.14, wall: true, elev: 1.65,
+    k: 'appendiabiti', name: 'Appendiabiti a parete', cat: 'arredo', w: 1.2, d: 0.12, h: 0.17, wall: true, elev: 1.65, model: 'models/appendiabiti.glb',
     build(b) {
       b.box(0, 0.07, -0.045, 1.2, 0.12, 0.025, WL);
       for (let i = 0; i < 6; i++) { const x = -0.5 + i * 0.2; b.tube([x, 0.07, -0.03], [x, 0.04, 0.05], 0.008, ST, { g: 0.8 }); b.sph(x, 0.04, 0.05, 0.014, ST, { g: 0.8 }); }
     },
   },
   {
-    k: 'lavagna', name: 'Lavagna / bacheca', cat: 'arredo', w: 1.2, d: 0.04, h: 0.9, wall: true, elev: 1.0,
+    k: 'lavagna', name: 'Lavagna / bacheca', cat: 'arredo', w: 1.2, d: 0.04, h: 0.9, wall: true, elev: 1.0, model: 'models/lavagna.glb',
     build(b) { b.box(0, 0.45, -0.005, 1.2, 0.9, 0.025, '#b9bec3', { g: 0.6 }); b.box(0, 0.45, 0.009, 1.16, 0.86, 0.004, '#fbfbf8', { g: 0.5 }); b.box(0, 0.02, 0.03, 1.0, 0.025, 0.05, '#b9bec3'); },
   },
   {
@@ -515,7 +515,7 @@ const CATALOG = [
     },
   },
   {
-    k: 'pianta', name: 'Pianta in vaso', cat: 'arredo', w: 0.5, d: 0.5, h: 1.45,
+    k: 'pianta', name: 'Pianta in vaso', cat: 'arredo', w: 0.5, d: 0.5, h: 1.6, model: 'models/palma.glb',
     build(b) {
       b.cyl(0, 0.2, 0, 0.18, 0.4, '#e8e4dc', { r2: 0.21, seg: 20 });
       b.tube([0, 0.38, 0], [0.02, 0.9, 0], 0.02, '#5c4430');

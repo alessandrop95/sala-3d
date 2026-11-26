@@ -580,7 +580,7 @@ out vec3 vN, vW; out vec2 vUV; out vec4 vL;
 void main(){ vec4 w = uModel*vec4(aPos,1.0); vW = w.xyz; vN = uNM*aNor; vUV = aUV; vL = uLightVP*w; gl_Position = uVP*w; }`;
 const FS_P = `#version 300 es
 precision highp float; precision highp sampler2DShadow;
-uniform sampler2D uBase, uMR, uNorm, uOcc; uniform vec4 uBaseF, uTint; uniform vec3 uMRF; uniform float uHasNorm, uCut, uOccS;
+uniform sampler2D uBase, uMR, uNorm, uOcc; uniform vec4 uBaseF, uTint; uniform vec3 uMRF; uniform float uHasNorm, uCut, uOccS, uGlow;
 in vec3 vN, vW; in vec2 vUV; in vec4 vL; out vec4 o;
 ${GLSL_COMMON}
 vec3 perturb(vec3 N, vec3 P, vec2 uv, vec3 tn){
@@ -611,6 +611,7 @@ void main(){
   vec3 R = reflect(-V, n), env = mix(SKY_DN, SKY_UP*1.15, clamp(R.y*0.5+0.5, 0.0, 1.0));
   vec3 Fa = F0 + (max(vec3(1.0-rough), F0)-F0)*pow(1.0-NdV, 5.0);
   vec3 c = direct + (kd*alb*amb*0.82 + Fa*env*(1.0-rough*0.75)*0.55) * ao;
+  c = mix(c, alb*1.7, uGlow);
   c = mix(c, uTint.rgb*1.4, uTint.a);
   o = vec4(pow(aces(c*uExposure), vec3(1.0/2.2)), 1.0);
 }`;
@@ -636,7 +637,7 @@ Engine.prototype.initModels = function () {
   const gl = this.gl;
   this.progP = this._program(VS_P, FS_P);
   this.up = {};
-  for (const n of ['uVP', 'uModel', 'uNM', 'uLightVP', 'uBase', 'uMR', 'uNorm', 'uOcc', 'uOccS', 'uBaseF', 'uMRF', 'uHasNorm', 'uCut', 'uTint',
+  for (const n of ['uVP', 'uModel', 'uNM', 'uLightVP', 'uBase', 'uMR', 'uNorm', 'uOcc', 'uOccS', 'uGlow', 'uBaseF', 'uMRF', 'uHasNorm', 'uCut', 'uTint',
     'uShadow', 'uEye', 'uLightDir', 'uRoom', 'uShadowOn', 'uTexel', 'uSoft', 'uExposure']) this.up[n] = gl.getUniformLocation(this.progP, n);
   const px = (r, g, b, a) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([r, g, b, a])); return t; };
   this.texWhite = px(255, 255, 255, 255); this.texFlat = px(128, 128, 255, 255);
@@ -740,7 +741,7 @@ Engine.prototype.loadGLB = async function (buf) {
         base: await tex(pb.baseColorTexture && pb.baseColorTexture.index, true),
         mr: await tex(pb.metallicRoughnessTexture && pb.metallicRoughnessTexture.index, false),
         norm: await tex(ma.normalTexture && ma.normalTexture.index, false),
-        occ: await tex(ma.occlusionTexture && ma.occlusionTexture.index, false), occS: ma.occlusionTexture ? (ma.occlusionTexture.strength == null ? 1 : ma.occlusionTexture.strength) : 0,
+        occ: await tex(ma.occlusionTexture && ma.occlusionTexture.index, false), glow: ma.emissiveTexture ? 0 : Math.min(1, Math.max(0, ...(ma.emissiveFactor || [0]))), occS: ma.occlusionTexture ? (ma.occlusionTexture.strength == null ? 1 : ma.occlusionTexture.strength) : 0,
       });
     }
     for (const c of nd.children || []) await walk(c, world);
@@ -758,7 +759,7 @@ Engine.prototype._drawModel = function (mdl, shadowPass) {
       gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, p.base || this.texWhite);
       gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, p.mr || this.texWhite);
       gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, p.norm || this.texFlat);
-      gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, p.occ || this.texWhite); gl.uniform1f(this.up.uOccS, p.occS);
+      gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, p.occ || this.texWhite); gl.uniform1f(this.up.uOccS, p.occS); gl.uniform1f(this.up.uGlow, p.glow);
       gl.uniform4fv(this.up.uBaseF, p.baseF); gl.uniform3fv(this.up.uMRF, p.mrf); gl.uniform1f(this.up.uHasNorm, p.norm ? 1 : 0); gl.uniform1f(this.up.uCut, p.cut);
     }
     if (p.ib) gl.drawElements(gl.TRIANGLES, p.count, p.itype, 0); else gl.drawArrays(gl.TRIANGLES, 0, p.count);
